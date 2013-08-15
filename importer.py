@@ -45,9 +45,11 @@ class Scope(object):
 
     def find_unresolved_references(self):
         def walk(scope, definitions):
+            scope_definitions = definitions | scope._definitions
+            # When we're in a class, don't export definitions to child function scopes
             if not scope._is_class:
-                definitions = definitions | scope._definitions
-                yield scope._references - definitions
+                definitions = scope_definitions
+            yield scope._references - scope_definitions
             for child in scope._children:
                 for unresolved in walk(child, definitions):
                     yield unresolved

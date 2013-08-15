@@ -66,5 +66,5 @@ def test_importer_class_methods_namespace_correctly():
 
             setter = set_value  # Should be resolved
         ''')
-    symbols = extract_unresolved_symbols(src, define_builtins=False)
+    symbols = extract_unresolved_symbols(src)
     assert symbols == set(['get_value'])
