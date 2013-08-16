@@ -49,7 +49,7 @@ def test_parser_symbol_in_global_function():
 
         ''')
     symbols = extract_unresolved_symbols(src)
-    assert symbols == set(['sys.path', 'os.path.splitext'])
+    assert symbols == set(['sys.path', 'os.path.splitext', 'os.path.basename'])
 
 
 def test_deep_package_reference_with_function_call():
@@ -93,7 +93,7 @@ def test_path_from_node_function():
         ''')
     st = ast.parse(src)
     visitor = UnknownSymbolVisitor()
-    assert visitor._path_from_node(st.body[0].value) == 'os.path.basename'
+    assert visitor._paths_from_node(st.body[0].value) == ['os.path.basename']
 
 
 def test_path_from_node_subscript():
@@ -101,10 +101,16 @@ def test_path_from_node_subscript():
         sys.path[0].tolower()
         ''')
     st = ast.parse(src)
-    print ast.dump(st)
     visitor = UnknownSymbolVisitor()
-    assert visitor._path_from_node(st.body[0].value) == 'sys.path'
+    assert visitor._paths_from_node(st.body[0].value) == ['sys.path']
 
 
 def test_symbol_series():
     assert _symbol_series('os.path.basename') == ['os', 'os.path', 'os.path.basename']
+
+
+def test_symbol_from_nested_tuples():
+    src = dedent("""
+        a = (os, (os.path, sys))
+        """)
+    assert extract_unresolved_symbols(src) == set(['os', 'os.path', 'sys'])

@@ -56,8 +56,13 @@ class Imports(object):
         return out.getvalue().strip().splitlines()
 
     def replace_imports(self, source):
+        imports = self.imports_as_source()
+        first = self.first_line
+        if first == 9999:
+            first = 1
+            imports.extend(['', ''])
         lines = source.splitlines()
-        lines[self.first_line - 1:self.last_line] = self.imports_as_source()
+        lines[first - 1:self.last_line] = imports
         return '\n'.join(lines)
 
     def __repr__(self):
@@ -73,11 +78,15 @@ def update_imports(src, st, symbols, index):
         scores = index.symbol_scores(symbol)
         if not scores:
             continue
-        _, module = scores[0]
-        print symbol, module, scores
-        if len(symbol) > len(module):
-            imports.add_import_from(module, symbol[len(module) + 1:])
-        else:
+        _, module, variable = scores[0]
+        print module, variable, symbol
+        # Direct module import: eg. os.path
+        if variable is None:
             imports.add_import(symbol)
+        else:
+            if '%s.%s' % (module, variable) == symbol:
+                imports.add_import(module)
+            else:
+                imports.add_import_from(module, variable)
 
     return imports.replace_imports(src)

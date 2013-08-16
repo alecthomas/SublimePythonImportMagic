@@ -6774,6 +6774,7 @@
     "devnull": 0.25,
     "SEEK_SET": 1.0,
     "path": {
+      ".score": 1.2,
       "pardir": 1.0,
       "realpath": 1.0,
       "sameopenfile": 1.0,

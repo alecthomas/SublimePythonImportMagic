@@ -23,4 +23,5 @@ if __name__ == '__main__':
             src = fd.read()
             st = ast.parse(src)
             symbols = extract_unresolved_symbols(st)
-            print update_imports(src, st, symbols, index)
+            if symbols:
+                print update_imports(src, st, symbols, index)

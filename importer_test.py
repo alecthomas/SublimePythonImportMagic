@@ -2,7 +2,8 @@ from __future__ import absolute_import
 import ast
 from textwrap import dedent
 
-from importer import ImportFinder, Imports
+from importer import ImportFinder, Imports, update_imports
+from symbols import extract_unresolved_symbols
 
 
 def test_import_finder():
@@ -39,3 +40,57 @@ def test_import_finder():
         ''').strip()
     print imports.replace_imports(src)
     assert imports.replace_imports(src) == expected_src
+
+
+def test_update_imports_inserts_initial_imports(index):
+    src = dedent("""
+        print os.path.basename("sys/foo")
+        print sys.path[0]
+        """).strip()
+    st = ast.parse(src)
+    symbols = extract_unresolved_symbols(st)
+    assert symbols == set(['os.path.basename', 'sys.path'])
+    assert update_imports(src, st, symbols, index) == dedent("""
+        import os.path
+        import sys
+
+
+        print os.path.basename("sys/foo")
+        print sys.path[0]
+        """).strip()
+
+
+def test_update_imports_inserts_imports(index):
+    src = dedent("""
+        import sys
+
+        print os.path.basename("sys/foo")
+        print sys.path[0]
+        """).strip()
+    st = ast.parse(src)
+    symbols = extract_unresolved_symbols(st)
+    assert symbols == set(['os.path.basename'])
+    new_src = update_imports(src, st, symbols, index)
+    assert new_src == dedent("""
+        import os.path
+        import sys
+
+        print os.path.basename("sys/foo")
+        print sys.path[0]
+        """).strip()
+
+
+def test_update_imports_correctly_aliases(index):
+    src = dedent('''
+        print basename('src/foo')
+        ''').strip()
+    st = ast.parse(src)
+    symbols = extract_unresolved_symbols(src)
+    assert symbols == set(['basename'])
+    new_src = update_imports(src, st, symbols, index)
+    assert new_src == dedent('''
+        from os.path import basename
+
+
+        print basename('src/foo')
+        ''').strip()

@@ -15,7 +15,7 @@ def test_index_file_with_all():
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
         index_source(subtree, 'test.py', src)
-    assert subtree.serialize() == '{\n  "one": 1.0\n}'
+    assert subtree.serialize() == '{".score": 1.0, "one": 1.0}'
 
 
 def test_index_if_name_main():
@@ -28,7 +28,7 @@ def test_index_if_name_main():
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
         index_source(subtree, 'test.py', src)
-    assert subtree.serialize() == '{}'
+    assert subtree.serialize() == '{".score": 1.0}'
 
 
 def test_index_symbol_scores():
@@ -39,17 +39,21 @@ def test_index_symbol_scores():
     with tree.enter('os') as os_tree:
         with os_tree.enter('path') as path_tree:
             index_source(path_tree, 'os.py', src)
-    assert tree.symbol_scores('walk') == [(0.8, 'os.path', 'walk')]
+    assert tree.symbol_scores('walk')[0][1:] == ('os.path', 'walk')
     assert tree.symbol_scores('os') == [(1.0, 'os', None)]
-    assert tree.symbol_scores('os.path.walk') == [(3.0, 'os.path', 'walk')]
+    assert tree.symbol_scores('os.path.walk') == [(3.2, 'os.path', 'walk')]
+
+
+def test_index_score_deep_unknown_attribute(index):
+    assert index.symbol_scores('os.path.basename.unknown')[0] == (3.2, 'os.path', 'basename')
 
 
 def test_index_score_deep_reference(index):
-    assert index.symbol_scores('os.path.basename')[0] == (3.0, 'os.path', 'basename')
+    assert index.symbol_scores('os.path.basename')[0] == (3.2, 'os.path', 'basename')
 
 
 def test_index_score_missing_symbol(index):
-    assert index.symbol_scores('os.path.something')[0] == (2.0, 'os.path', None)
+    assert index.symbol_scores('os.path.something')[0] == (2.2, 'os.path', None)
 
 
 def test_index_score_sys_path(index):
@@ -58,3 +62,8 @@ def test_index_score_sys_path(index):
 
 def test_encoding_score(index):
     assert index.symbol_scores('iso8859_6.Codec')[0] == (1.8, 'encodings.iso8859_6', 'Codec')
+
+
+def test_score_boosts_apply_to_scopes(index):
+    print index.symbol_scores('basename')
+    assert index.symbol_scores('basename')[0][1:] == ('os.path', 'basename')

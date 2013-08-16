@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 class JSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, SymbolIndex):
-            return o._tree
+            d = o._tree.copy()
+            d['.score'] = o._score
+            return d
         return super(JSONEncoder, self).default(o)
 
 
@@ -37,7 +39,7 @@ BUILTIN_MODULES = [
 class SymbolIndex(object):
     PACKAGE_ALIASES = {
         # Give os.path a score boost over posixpath and ntpath.
-        'os.path': (os.path.__name__, 1.0),
+        'os.path': (os.path.__name__, 1.2),
     }
     _PACKAGE_ALIASES = dict((v[0], (k, v[1])) for k, v in PACKAGE_ALIASES.items())
 
@@ -74,6 +76,12 @@ class SymbolIndex(object):
             return [key[0]] + path, score + value._score
 
     def symbol_scores(self, symbol):
+        """Find matches for symbol.
+
+        :param symbol: A . separated symbol. eg. 'os.path.basename'
+        :returns: A list of tuples of (score, package, reference|None),
+            ordered by score from highest to lowest.
+        """
         scores = []
         path = []
 
@@ -91,7 +99,7 @@ class SymbolIndex(object):
             for key, subscope in scope._tree.items():
                 if type(subscope) is not float:
                     path.append(key)
-                    score_walk(subscope, scale - 0.1)
+                    score_walk(subscope, subscope._score * scale - 0.1)
                     path.pop()
 
         full_key = symbol.split('.')
@@ -163,12 +171,13 @@ class SymbolIndex(object):
                     tree.add(key, value)
 
         data = json.load(file)
-        tree = SymbolIndex()
+        score = data.pop('.score', 1.0)
+        tree = SymbolIndex(score=score)
         load(tree, data)
         return tree
 
     def serialize(self):
-        return json.dumps(self, indent=2, cls=JSONEncoder)
+        return json.dumps(self, cls=JSONEncoder)
 
     def __repr__(self):
         return repr(self._tree)

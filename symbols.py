@@ -7,6 +7,10 @@ from contextlib import contextmanager
 """Parse Python source and extract unresolved symbols."""
 
 
+class _InvalidSymbol(Exception):
+    pass
+
+
 class Scope(object):
     GLOBALS = ['__name__', '__file__', '__loader__', '__package__', '__path__']
     PYTHON3_BUILTINS = ['PermissionError']
@@ -119,53 +123,61 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _define(self, target):
-        symbol = self._path_from_node(target)
-        self._scope.define(symbol)
-
-    def _reference(self, target):
-        symbol = self._path_from_node(target)
-        self._scope.reference(symbol)
-
-    def _assign(self, target):
-        symbol = self._path_from_node(target)
-        if '.' in symbol:
-            self._scope.reference(symbol)
-        else:
+        for symbol in self._paths_from_node(target):
             self._scope.define(symbol)
 
-    def _path_from_node(self, target):
+    def _reference(self, target):
+        for symbol in self._paths_from_node(target):
+            self._scope.reference(symbol)
+
+    def _assign(self, target):
+        for symbol in self._paths_from_node(target):
+            if '.' in symbol:
+                self._scope.reference(symbol)
+            else:
+                self._scope.define(symbol)
+
+    def _paths_from_node(self, target):
         """Extract a fully qualified symbol from a node.
 
         eg. Given the source "os.path.basename(path)" we would extract ['os', 'path', 'basename']
         """
-        path = []
+        paths = []
 
         def collect(node):
-            if isinstance(node, ast.Attribute):
-                path.append(node.attr)
-                collect(node.value)
-            elif isinstance(node, ast.Subscript):
-                path[:] = []
-                collect(node.value)
-            elif isinstance(node, ast.Call):
-                path[:] = []
-                collect(node.func)
-            elif isinstance(node, ast.Name):
-                path.append(node.id)
-            else:
-                raise Exception('unsupported node type %r' % node)
+            path = []
+
+            def collect_symbol(node):
+                if isinstance(node, ast.Tuple):
+                    for elt in node.elts:
+                        collect(elt)
+                elif isinstance(node, ast.Attribute):
+                    path.append(node.attr)
+                    collect_symbol(node.value)
+                elif isinstance(node, ast.Subscript):
+                    path[:] = []
+                    collect_symbol(node.value)
+                elif isinstance(node, ast.Call):
+                    path[:] = []
+                    collect_symbol(node.func)
+                elif isinstance(node, ast.Name):
+                    path.append(node.id)
+                else:
+                    raise _InvalidSymbol('unsupported node type %r' % node)
+
+            try:
+                collect_symbol(node)
+            except _InvalidSymbol:
+                return
+            path.reverse()
+            paths.append('.'.join(path))
 
         collect(target)
-        path.reverse()
-        return '.'.join(path)
+        return paths
 
     def visit_Assign(self, node):
         for target in node.targets:
-            if isinstance(target, ast.Tuple):
-                for elt in target.elts:
-                    self._assign(elt)
-            else:
-                self._assign(target)
+            self._assign(target)
         self.generic_visit(node)
 
     def visit_ClassDef(self, node):
@@ -175,11 +187,18 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node):
         self._reference(node)
+        for arg in node.args + node.keywords + filter(None, [node.starargs, node.kwargs]):
+            self.visit(arg)
 
     def visit_Attribute(self, node):
         self._reference(node)
 
     def visit_Subscript(self, node):
+        self._reference(node)
+        self.visit(node.slice)
+        self.visit(node.value)
+
+    def visit_Name(self, node):
         self._reference(node)
 
     def visit_ImportFrom(self, node):
