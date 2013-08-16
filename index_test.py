@@ -33,12 +33,24 @@ def test_index_if_name_main():
 
 def test_index_symbol_scores():
     src = dedent('''
-        path = []
-
         def walk(dir): pass
         ''')
     tree = SymbolIndex()
-    with tree.enter('os') as subtree:
-        index_source(subtree, 'os.py', src)
-    assert tree.symbol_scores('walk') == [(0.9, 'os')]
-    assert tree.symbol_scores('os') == [(1.0, '')]
+    with tree.enter('os') as os_tree:
+        with os_tree.enter('path') as path_tree:
+            index_source(path_tree, 'os.py', src)
+    assert tree.symbol_scores('walk') == [(0.8, 'os.path')]
+    assert tree.symbol_scores('os') == [(1.0, 'os')]
+    assert tree.symbol_scores('os.path.walk') == [(3.0, 'os.path')]
+
+
+def test_index_score_deep_reference(index):
+    assert index.symbol_scores('os.path.basename')[0] == (3.0, 'os.path')
+
+
+def test_index_score_simulated_sys(index):
+    index.symbol_scores('sys.path')[0] == (2.0, 'sys.path')
+
+
+def test_encoding_score(index):
+    assert index.symbol_scores('iso8859_6.Codec')[0] == (1.8, 'encodings.iso8859_6')

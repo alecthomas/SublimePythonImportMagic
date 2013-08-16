@@ -27,7 +27,7 @@ class Imports(object):
         self.imports.append((name, alias))
         self._update_line_nos(line_no)
 
-    def add_import_from(self, module, name, alias, line_no=None):
+    def add_import_from(self, module, name, alias=None, line_no=None):
         self.imports_from[module].append((name, alias))
         self._update_line_nos(line_no)
 
@@ -73,6 +73,9 @@ def update_imports(src, st, symbols, index):
         scores = index.symbol_scores(symbol)
         if not scores:
             continue
-        _, package = scores[0]
+        _, module = scores[0]
+        print symbol, module, scores
+        if len(symbol) > len(module):
+            imports.add_import_from(module, symbol[len(module) + 1:])
 
     return imports.replace_imports(src)

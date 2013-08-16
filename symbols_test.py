@@ -3,7 +3,7 @@ from __future__ import absolute_import
 import ast
 from textwrap import dedent
 
-from symbols import Scope, UnknownSymbolVisitor, extract_unresolved_symbols, _symbol_series
+from symbols import UnknownSymbolVisitor, extract_unresolved_symbols, _symbol_series
 
 
 def test_parser_symbol_in_global_function():

@@ -26,10 +26,10 @@ class JSONEncoder(json.JSONEncoder):
 
 BLACK_LIST_RE = re.compile(r'test', re.I)
 BUILTIN_MODULES = [
-    'array', 'audioop', 'autoGIL', 'binascii', 'bsddb185', 'bz2', 'cmath',
+    'array', 'audioop', 'binascii', 'bsddb185', 'bz2', 'cmath',
     'cPickle', 'crypt', 'cStringIO', 'datetime', 'dbm', 'fcntl',
     'gestalt', 'grp', 'icglue', 'imageop', 'itertools', 'math', 'mmap', 'nis',
-    'operator', 'parser', 'pyexpat', 'readline', 'resource', 'select',
+    'operator', 'parser', 'readline', 'resource', 'select',
     'strop', 'sys', 'syslog', 'termios', 'time', 'unicodedata', 'zlib',
 ]
 
@@ -61,26 +61,35 @@ class SymbolIndex(object):
         for alias, (package, score) in SymbolIndex._PACKAGE_ALIASES.items():
             create(self, package.split('.'), score)
 
+    def _score_key(self, scope, key):
+        if not key:
+            return [], 0.0
+        key_score = value = scope._tree.get(key[0], None)
+        if value is None:
+            return [], 0.0
+        if type(value) is float:
+            return [], key_score
+        else:
+            path, score = self._score_key(value, key[1:])
+            return [key[0]] + path, score + value._score
+
     def symbol_scores(self, symbol):
         scores = []
         path = []
 
-        def score(key, scope, scale):
-            value = scope._tree.get(symbol, None)
+        def score_walk(scope, scale):
+            sub_path, score = self._score_key(scope, full_key)
+            if score > 0.1:
+                scores.append((score * scale, '.'.join(path + sub_path)))
 
-            if value is not None:
-                if type(value) is not float:
-                    value = value._score
-                scale *= value
-                scores.append((scale, '.'.join(path)))
-
-            for key, value in scope._tree.items():
-                if type(value) is not float:
+            for key, subscope in scope._tree.items():
+                if type(subscope) is not float:
                     path.append(key)
-                    score(key, value, scale * value._score - 0.1)
+                    score_walk(subscope, scale - 0.1)
                     path.pop()
 
-        score(symbol, self, 1.0)
+        full_key = symbol.split('.')
+        score_walk(self, 1.0)
         scores.sort(reverse=True)
         return scores
 
@@ -223,6 +232,8 @@ def index_path(tree, root):
 
     :param root: Either a package directory or a .py module.
     """
+    if os.path.basename(root).startswith('_'):
+        return
     if os.path.isfile(root) and root.endswith('.py'):
         basename, ext = os.path.splitext(os.path.basename(root))
         if basename == '__init__':
@@ -244,7 +255,8 @@ def index_builtin(tree, name):
 
     with tree.enter(name) as subtree:
         for key, value in vars(module).iteritems():
-            subtree.add(key, 1.0)
+            if not key.startswith('_'):
+                subtree.add(key, 1.0)
 
 
 def build_index(tree, paths):
