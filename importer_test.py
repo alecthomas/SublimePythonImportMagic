@@ -1,70 +1,41 @@
+from __future__ import absolute_import
+import ast
 from textwrap import dedent
 
-from importer import extract_unresolved_symbols
+from importer import ImportFinder, Imports
 
 
-def test_importer_symbol_in_global_function():
+def test_import_finder():
     src = dedent('''
-        import posixpath
-        import os as thisos
+        # A comment
 
-        class Class(object):
-            def foo(self):
-                print self.bar
+        from sys import path, moo
+        from sys import path as syspath
+        import os
+        import sys as system
 
-        def basename_no_ext(filename, default=1):
-            def inner():
-                print basename
+        def func():
+            pass
+        ''').strip()
+    tree = ast.parse(src)
+    imports = Imports()
+    visitor = ImportFinder(imports)
+    visitor.visit(tree)
+    expected_imports = [
+        'import os',
+        'import sys as system',
+        'from sys import path, moo, path as syspath',
+        ]
+    assert imports.imports_as_source() == expected_imports
+    expected_src = dedent('''
+        # A comment
 
-            basename, _ = os.path.splitext(os.path.basename(filename))
-            moo = 10
-            inner()
+        import os
+        import sys as system
+        from sys import path, moo, path as syspath
 
-            with open('foo') as fd:
-                print fd.read()
-
-            try:
-                print 'foo'
-            except Exception as e:
-                print e
-
-        basename_no_ext(sys.path)
-
-        for path in sys.path:
-            print path
-
-        sys.path, os.path = [], []
-
-        sys.path[0] = 10
-
-        moo = lambda a: True
-
-        comp = [p for p in sys.path]
-
-        sys.path()[10] = 2
-
-        posixpath.join(['a', 'b'])
-
-
-        ''')
-    symbols = extract_unresolved_symbols(src)
-    assert symbols == set(['os', 'sys'])
-
-
-def test_importer_class_methods_namespace_correctly():
-    src = dedent('''
-        class Class(object):
-            def __init__(self):
-                self.value = 1
-                get_value()  # Should be unresolved
-
-            def get_value(self):
-                return self.value
-
-            def set_value(self, value):
-                self.value = value
-
-            setter = set_value  # Should be resolved
-        ''')
-    symbols = extract_unresolved_symbols(src)
-    assert symbols == set(['get_value'])
+        def func():
+            pass
+        ''').strip()
+    print imports.replace_imports(src)
+    assert imports.replace_imports(src) == expected_src
