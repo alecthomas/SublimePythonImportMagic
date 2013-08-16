@@ -68,7 +68,7 @@ class SymbolIndex(object):
         if value is None:
             return [], 0.0
         if type(value) is float:
-            return [], key_score
+            return [None, key[0]], key_score
         else:
             path, score = self._score_key(value, key[1:])
             return [key[0]] + path, score + value._score
@@ -80,7 +80,13 @@ class SymbolIndex(object):
         def score_walk(scope, scale):
             sub_path, score = self._score_key(scope, full_key)
             if score > 0.1:
-                scores.append((score * scale, '.'.join(path + sub_path)))
+                try:
+                    i = sub_path.index(None)
+                    sub_path, from_symbol = sub_path[:i], '.'.join(sub_path[i + 1:])
+                except ValueError:
+                    from_symbol = None
+                package_path = '.'.join(path + sub_path)
+                scores.append((score * scale, package_path, from_symbol))
 
             for key, subscope in scope._tree.items():
                 if type(subscope) is not float:

@@ -77,5 +77,7 @@ def update_imports(src, st, symbols, index):
         print symbol, module, scores
         if len(symbol) > len(module):
             imports.add_import_from(module, symbol[len(module) + 1:])
+        else:
+            imports.add_import(symbol)
 
     return imports.replace_imports(src)
