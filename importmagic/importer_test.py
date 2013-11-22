@@ -2,8 +2,8 @@ from __future__ import absolute_import
 import ast
 from textwrap import dedent
 
-from importer import ImportFinder, Imports, update_imports
-from symbols import extract_unresolved_symbols
+from .importer import ImportFinder, Imports, update_imports
+from .symbols import extract_unresolved_symbols
 
 
 def test_import_finder():

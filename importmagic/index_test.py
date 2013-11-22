@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from textwrap import dedent
 
-from index import index_source, SymbolIndex
+from .index import SymbolIndex
 
 
 def test_index_file_with_all():
@@ -14,8 +14,8 @@ def test_index_file_with_all():
         ''')
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
-        index_source(subtree, 'test.py', src)
-    assert subtree.serialize() == '{".score": 1.0, "one": 1.0}'
+        subtree.index_source('test.py', src)
+    assert subtree.serialize() == '{".stdlib": false, ".score": 1.0, "one": 1.0}'
 
 
 def test_index_if_name_main():
@@ -27,8 +27,8 @@ def test_index_if_name_main():
         ''')
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
-        index_source(subtree, 'test.py', src)
-    assert subtree.serialize() == '{".score": 1.0}'
+        subtree.index_source('test.py', src)
+    assert subtree.serialize() == '{".stdlib": false, ".score": 1.0}'
 
 
 def test_index_symbol_scores():
@@ -38,7 +38,7 @@ def test_index_symbol_scores():
     tree = SymbolIndex()
     with tree.enter('os') as os_tree:
         with os_tree.enter('path') as path_tree:
-            index_source(path_tree, 'os.py', src)
+            path_tree.index_source('os.py', src)
     assert tree.symbol_scores('walk')[0][1:] == ('os.path', 'walk')
     assert tree.symbol_scores('os') == [(1.0, 'os', None)]
     assert tree.symbol_scores('os.path.walk') == [(3.2, 'os.path', 'walk')]

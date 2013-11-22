@@ -3,6 +3,9 @@ from collections import defaultdict
 from StringIO import StringIO
 
 
+"""Imports new symbols."""
+
+
 class ImportFinder(ast.NodeVisitor):
     def __init__(self, imports):
         self._imports = imports
@@ -79,7 +82,6 @@ def update_imports(src, st, symbols, index):
         if not scores:
             continue
         _, module, variable = scores[0]
-        print module, variable, symbol
         # Direct module import: eg. os.path
         if variable is None:
             imports.add_import(symbol)
@@ -88,5 +90,4 @@ def update_imports(src, st, symbols, index):
                 imports.add_import(module)
             else:
                 imports.add_import_from(module, variable)
-
     return imports.replace_imports(src)
