@@ -29,8 +29,8 @@ class JSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, SymbolIndex):
             d = o._tree.copy()
-            d['.score'] = o._score
-            d['.stdlib'] = o._stdlib
+            d.update(('.' + name, getattr(o, '_' + name))
+                     for name in SymbolIndex._SERIALIZED_ATTRIBUTES)
             return d
         return super(JSONEncoder, self).default(o)
 
@@ -41,6 +41,7 @@ class SymbolIndex(object):
         'os.path': (os.path.__name__, 1.2),
     }
     _PACKAGE_ALIASES = dict((v[0], (k, v[1])) for k, v in PACKAGE_ALIASES.items())
+    _SERIALIZED_ATTRIBUTES = {'score': 1.0, 'stdlib': False}
 
     def __init__(self, name=None, parent=None, score=1.0, stdlib=False):
         self._name = name
