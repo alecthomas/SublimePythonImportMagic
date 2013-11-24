@@ -15,7 +15,7 @@ def test_index_file_with_all():
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
         subtree.index_source('test.py', src)
-    assert subtree.serialize() == '{".stdlib": false, ".score": 1.0, "one": 1.0}'
+    assert subtree.serialize() == '{".location": "L", ".score": 1.0, "one": 1.0}'
 
 
 def test_index_if_name_main():
@@ -28,7 +28,7 @@ def test_index_if_name_main():
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
         subtree.index_source('test.py', src)
-    assert subtree.serialize() == '{".stdlib": false, ".score": 1.0}'
+    assert subtree.serialize() == '{".location": "L", ".score": 1.0}'
 
 
 def test_index_symbol_scores():

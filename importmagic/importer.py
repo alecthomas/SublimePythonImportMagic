@@ -38,6 +38,9 @@ class Iterator(object):
 Import = namedtuple('Import', 'name alias')
 
 
+LOCATION_ORDER = 'S3L'
+
+
 class Imports(object):
     def __init__(self, source):
         self._imports = set()
@@ -54,27 +57,38 @@ class Imports(object):
     def add_import_from(self, module, name, alias=None):
         self._imports_from[module].add(Import(name, alias))
 
-    def update_source(self):
+    def update_source(self, index):
         out = StringIO()
-        for imp in sorted(self._imports):
-            out.write('import {module}{alias}\n'.format(
-                module=imp.name,
-                alias='as {alias}'.format(alias=imp.alias) if imp.alias else '',
-            ))
-        for module, imports in sorted(self._imports_from.iteritems()):
-            out.write('from {module} import {imports}\n'.format(
-                module=module,
-                imports=', '.join(
-                    '{name}{alias}'.format(
-                        name=name, alias=' as {alias}'.format(alias=alias) if alias else ''
-                    ) for name, alias in imports)
-            ))
-        out.write('\n')
+        print self._imports
+        print self._imports_from
+        for expected_location in LOCATION_ORDER:
+            for module, imports in sorted(self._imports_from.iteritems()):
+                location = index.find(module).location
+                if expected_location != location:
+                    continue
+                imports = sorted(imports)
+                out.write('from {module} import {imports}\n'.format(
+                    module=module,
+                    imports=', '.join(
+                        '{name}{alias}'.format(
+                            name=name, alias=' as {alias}'.format(alias=alias) if alias else ''
+                        ) for name, alias in imports)
+                ))
+
+            for imp in sorted(self._imports):
+                location = index.find(imp.name).location
+                if expected_location != location:
+                    continue
+                out.write('import {module}{alias}\n'.format(
+                    module=imp.name,
+                    alias='as {alias}'.format(alias=imp.alias) if imp.alias else '',
+                ))
+            out.write('\n')
 
         lines = self._source.splitlines()
         start = self._tokens[self._import_begin][2][0] - 1
         end = self._tokens[self._imports_end][2][0] - 1
-        lines[start:end] = [out.getvalue()]
+        lines[start:end] = [out.getvalue().strip() + '\n\n']
         return '\n'.join(lines)
 
     def _parse(self):
@@ -86,7 +100,7 @@ class Imports(object):
         while it:
             index, token = it.next()
 
-            if token[0] == tokenize.INDENT or token[0] == tokenize.NAME and token[1] not in ('import', 'from'):
+            if token[1] not in ('import', 'from') and token[1].strip():
                 break
 
             type = token[1]
@@ -162,8 +176,17 @@ def update_imports(src, symbols, index):
         if variable is None:
             imports.add_import(symbol)
         else:
-            if '%s.%s' % (module, variable) == symbol:
+            if symbol.startswith(module):
+                # sys.path              sys path          ->    import sys
+                # os.path.basename      os.path basename  ->    import os.path
                 imports.add_import(module)
             else:
-                imports.add_import_from(module, variable)
-    return imports.update_source()
+                prefix = module.split('.') + [variable]
+                seeking = symbol.split('.')
+                module = []
+                # basename              os.path basename   ->   from os.path import basename
+                # path.basename         os.path basename   ->   from os import path
+                while prefix and seeking[0] != prefix[0]:
+                    module.append(prefix.pop(0))
+                imports.add_import_from('.'.join(module), prefix[0])
+    return imports.update_source(index)

@@ -7,20 +7,26 @@ from .symbols import extract_unresolved_symbols
 
 def test_update_imports_inserts_initial_imports(index):
     src = dedent("""
-        print os.path.basename("sys/foo")
+        print os.path.basename('sys/foo')
         print sys.path[0]
+        print basename('sys/foo')
+        print path.basename('sys/foo')
         """).strip()
     st = ast.parse(src)
     symbols = extract_unresolved_symbols(st)
-    assert symbols == set(['os.path.basename', 'sys.path'])
+    assert symbols == {'os.path.basename', 'sys.path', 'basename', 'path.basename'}
     new_src = update_imports(src, symbols, index)
     assert dedent("""
+        from os import path
+        from os.path import basename
         import os.path
         import sys
 
 
-        print os.path.basename("sys/foo")
+        print os.path.basename('sys/foo')
         print sys.path[0]
+        print basename('sys/foo')
+        print path.basename('sys/foo')
         """).strip() == new_src
 
 
@@ -60,7 +66,7 @@ def test_update_imports_correctly_aliases(index):
         ''').strip() == new_src
 
 
-def test_parse_imports():
+def test_parse_imports(index):
     src = dedent('''
         import os, sys as sys
         import sys as sys
@@ -75,12 +81,12 @@ def test_parse_imports():
             pass
         ''').strip()
     imports = Imports(src)
-    new_src = imports.update_source()
+    new_src = imports.update_source(index)
     assert dedent(r'''
-        import os
-        import sys
         from os import path, posixpath
         from os.path import basename
+        import os
+        import sys
 
 
         def main():

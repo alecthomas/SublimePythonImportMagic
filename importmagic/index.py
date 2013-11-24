@@ -7,10 +7,12 @@ import sys
 from contextlib import contextmanager
 from distutils import sysconfig
 
-STD_LIBS = set([sysconfig.get_python_lib(standard_lib=True),
-                sysconfig.get_python_lib(plat_specific=True),
-                sysconfig.get_python_lib(plat_specific=False)])
-
+LIB_LOCATIONS = sorted(set((
+    (sysconfig.get_python_lib(standard_lib=True), 'S'),
+    (sysconfig.get_python_lib(plat_specific=True), '3'),
+    (sysconfig.get_python_lib(standard_lib=True, prefix=sys.prefix), 'S'),
+    (sysconfig.get_python_lib(plat_specific=True, prefix=sys.prefix), '3'),
+)), key=lambda l: -len(l[0]))
 
 """Build an index of top-level symbols from Python modules and packages."""
 
@@ -29,7 +31,7 @@ class JSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, SymbolIndex):
             d = o._tree.copy()
-            d.update(('.' + name, getattr(o, '_' + name))
+            d.update(('.' + name, getattr(o, name))
                      for name in SymbolIndex._SERIALIZED_ATTRIBUTES)
             return d
         return super(JSONEncoder, self).default(o)
@@ -40,16 +42,21 @@ class SymbolIndex(object):
         # Give os.path a score boost over posixpath and ntpath.
         'os.path': (os.path.__name__, 1.2),
     }
+    LOCATIONS = {
+        '3': 'Third party',
+        'S': 'System',
+        'L': 'Local',
+    }
     _PACKAGE_ALIASES = dict((v[0], (k, v[1])) for k, v in PACKAGE_ALIASES.items())
-    _SERIALIZED_ATTRIBUTES = {'score': 1.0, 'stdlib': False}
+    _SERIALIZED_ATTRIBUTES = {'score': 1.0, 'location': '3'}
 
-    def __init__(self, name=None, parent=None, score=1.0, stdlib=False):
+    def __init__(self, name=None, parent=None, score=1.0, location='3', path=None):
         self._name = name
         self._tree = {}
         self._exports = {}
         self._parent = parent
-        self._score = score
-        self._stdlib = stdlib
+        self.score = score
+        self.location = location
         if parent is None:
             self._merge_aliases()
 
@@ -59,13 +66,16 @@ class SymbolIndex(object):
             for key, value in data.items():
                 if isinstance(value, dict):
                     score = value.pop('.score', 1.0)
-                    stdlib = value.pop('.stdlib', False)
-                    with tree.enter(key, score=score, stdlib=stdlib) as subtree:
+                    location = value.pop('.location', 'L')
+                    with tree.enter(key, score=score, location=location) as subtree:
                         load(subtree, value)
                 else:
+                    assert isinstance(value, float), '%s expected to be float was %r' % (key, value)
                     tree.add(key, value)
 
         data = json.load(file)
+        data.pop('.location', None)
+        data.pop('.score', None)
         tree = SymbolIndex()
         load(tree, data)
         return tree
@@ -82,7 +92,7 @@ class SymbolIndex(object):
     def index_file(self, module, filename):
         if BLACKLIST_RE.search(filename):
             return
-        with self.enter(module, stdlib=is_stdlib(filename)) as subtree:
+        with self.enter(module, location=location_for(filename)) as subtree:
             with open(filename) as fd:
                 subtree.index_source(filename, fd.read())
 
@@ -93,7 +103,7 @@ class SymbolIndex(object):
         """
         if os.path.basename(root).startswith('_'):
             return
-        stdlib = is_stdlib(root)
+        location = location_for(root)
         if os.path.isfile(root):
             basename, ext = os.path.splitext(os.path.basename(root))
             ext = ext.lower()
@@ -102,14 +112,14 @@ class SymbolIndex(object):
                     basename = None
                 self.index_file(basename, root)
             elif ext in ('.dll', '.so'):
-                self.index_builtin('.'.join(filter(None, [self.path(), basename])), stdlib=stdlib)
+                self.index_builtin('.'.join(filter(None, [self.path(), basename])), location=location)
         elif os.path.isdir(root) and os.path.exists(os.path.join(root, '__init__.py')):
             basename = os.path.basename(root)
-            with self.enter(basename, stdlib=stdlib) as subtree:
+            with self.enter(basename, location=location) as subtree:
                 for filename in os.listdir(root):
                     subtree.index_path(os.path.join(root, filename))
 
-    def index_builtin(self, name, stdlib=False):
+    def index_builtin(self, name, location=False):
         if name.startswith('_'):
             return
         try:
@@ -118,14 +128,14 @@ class SymbolIndex(object):
             logger.debug('failed to index builtin module %s', name)
             return
 
-        with self.enter(name, stdlib=stdlib) as subtree:
+        with self.enter(name, location=location) as subtree:
             for key, value in vars(module).iteritems():
                 if not key.startswith('_'):
                     subtree.add(key, 1.0)
 
     def build_index(self, paths):
         for builtin in BUILTIN_MODULES:
-            self.index_builtin(builtin, stdlib=True)
+            self.index_builtin(builtin, location='S')
         for path in paths:
             if os.path.isdir(path):
                 for filename in os.listdir(path):
@@ -156,7 +166,7 @@ class SymbolIndex(object):
             for key, subscope in scope._tree.items():
                 if type(subscope) is not float:
                     path.append(key)
-                    score_walk(subscope, subscope._score * scale - 0.1)
+                    score_walk(subscope, subscope.score * scale - 0.1)
                     path.pop()
 
         full_key = symbol.split('.')
@@ -200,13 +210,13 @@ class SymbolIndex(object):
             self._tree[name] = score
 
     @contextmanager
-    def enter(self, name, score=1.0, stdlib=False):
+    def enter(self, name, location='L', score=1.0):
         if name is None:
             tree = self
         else:
             tree = self._tree.get(name)
             if not isinstance(tree, SymbolIndex):
-                tree = self._tree[name] = SymbolIndex(name, self, score=score, stdlib=stdlib)
+                tree = self._tree[name] = SymbolIndex(name, self, score=score, location=location)
                 if tree.path() in SymbolIndex._PACKAGE_ALIASES:
                     alias_path, _ = SymbolIndex._PACKAGE_ALIASES[tree.path()]
                     alias = self.find(alias_path)
@@ -228,7 +238,7 @@ class SymbolIndex(object):
             if not alias:
                 return
             name = alias.pop(0)
-            with node.enter(name, score=1.0 if alias else score) as index:
+            with node.enter(name, location='S', score=1.0 if alias else score) as index:
                 create(index, alias, score)
 
         for alias, (package, score) in SymbolIndex._PACKAGE_ALIASES.items():
@@ -244,7 +254,7 @@ class SymbolIndex(object):
             return [None, key[0]], key_score
         else:
             path, score = self._score_key(value, key[1:])
-            return [key[0]] + path, score + value._score
+            return [key[0]] + path, score + value.score
 
 
 class SymbolVisitor(ast.NodeVisitor):
@@ -288,11 +298,12 @@ class SymbolVisitor(ast.NodeVisitor):
         pass
 
 
-def is_stdlib(path):
-    for stdpath in STD_LIBS:
-        if path.startswith(stdpath):
-            return True
-    return False
+def location_for(path):
+    for dir, location in LIB_LOCATIONS:
+        if path.startswith(dir):
+            return location
+    return 'L'
+
 
 if __name__ == '__main__':
     # print ast.dump(ast.parse(open('pyautoimp.py').read(), 'pyautoimp.py'))
