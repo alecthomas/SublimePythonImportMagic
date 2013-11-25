@@ -1,10 +1,10 @@
+"""Parse Python source and extract unresolved symbols."""
+
+
 import __builtin__
 import ast
 import sys
 from contextlib import contextmanager
-
-
-"""Parse Python source and extract unresolved symbols."""
 
 
 class _InvalidSymbol(Exception):
@@ -51,26 +51,8 @@ class Scope(object):
             self._cursor = self._cursors[-1]
 
     def find_unresolved_references(self):
-        def walk(scope, definitions):
-            scope_definitions = definitions | scope._definitions
-            # When we're in a class, don't export definitions to child function scopes
-            if not scope._is_class:
-                definitions = scope_definitions
-            unresolved = set()
-            for reference in scope._references:
-                for symbol in _symbol_series(reference):
-                    if symbol in scope_definitions:
-                        break
-                else:
-                    unresolved.add(reference)
-
-            yield unresolved
-            for child in scope._children:
-                for unresolved in walk(child, definitions):
-                    yield unresolved
-
         all_unresolved = set()
-        for unresolved in walk(self, set()):
+        for unresolved in _walk(self, set()):
             all_unresolved.update(unresolved)
         return all_unresolved
 
@@ -116,6 +98,8 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
                 self._scope.define(args.vararg)
             for arg in args.args:
                 self._scope.define(arg.id)
+            for decorator in getattr(node, 'decorator_list', []):
+                self.generic_visit(decorator)
             self.generic_visit(node)
 
     def visit_comprehension(self, node):
@@ -144,35 +128,7 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         """
         paths = []
 
-        def collect(node):
-            path = []
-
-            def collect_symbol(node):
-                if isinstance(node, ast.Tuple):
-                    for elt in node.elts:
-                        collect(elt)
-                elif isinstance(node, ast.Attribute):
-                    path.append(node.attr)
-                    collect_symbol(node.value)
-                elif isinstance(node, ast.Subscript):
-                    path[:] = []
-                    collect_symbol(node.value)
-                elif isinstance(node, ast.Call):
-                    path[:] = []
-                    collect_symbol(node.func)
-                elif isinstance(node, ast.Name):
-                    path.append(node.id)
-                else:
-                    raise _InvalidSymbol('unsupported node type %r' % node)
-
-            try:
-                collect_symbol(node)
-            except _InvalidSymbol:
-                return
-            path.reverse()
-            paths.append('.'.join(path))
-
-        collect(target)
+        _collect(paths, target)
         return paths
 
     def visit_Assign(self, node):
@@ -227,6 +183,55 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
     def visit_For(self, node):
         self._define(node.target)
         self.generic_visit(node)
+
+
+def _collect_symbol(paths, path, node):
+    if isinstance(node, ast.Tuple):
+        for elt in node.elts:
+            _collect(paths, elt)
+    elif isinstance(node, ast.Attribute):
+        path.append(node.attr)
+        _collect_symbol(paths, path, node.value)
+    elif isinstance(node, ast.Subscript):
+        path[:] = []
+        _collect_symbol(paths, path, node.value)
+    elif isinstance(node, ast.Call):
+        path[:] = []
+        _collect_symbol(paths, path, node.func)
+    elif isinstance(node, ast.Name):
+        path.append(node.id)
+    else:
+        raise _InvalidSymbol('unsupported node type %r' % node)
+
+
+def _collect(paths, node):
+    path = []
+
+    try:
+        _collect_symbol(paths, path, node)
+    except _InvalidSymbol:
+        return
+    path.reverse()
+    paths.append('.'.join(path))
+
+
+def _walk(scope, definitions):
+    scope_definitions = definitions | scope._definitions
+    # When we're in a class, don't export definitions to child function scopes
+    if not scope._is_class:
+        definitions = scope_definitions
+    unresolved = set()
+    for reference in scope._references:
+        for symbol in _symbol_series(reference):
+            if symbol in scope_definitions:
+                break
+        else:
+            unresolved.add(reference)
+
+    yield unresolved
+    for child in scope._children:
+        for unresolved in _walk(child, definitions):
+            yield unresolved
 
 
 def extract_unresolved_symbols(src, trace=False, define_builtins=True):

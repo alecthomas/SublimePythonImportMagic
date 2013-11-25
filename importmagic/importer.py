@@ -1,9 +1,8 @@
-import tokenize
-from collections import defaultdict, namedtuple
-from cStringIO import StringIO
-
-
 """Imports new symbols."""
+
+import tokenize
+from cStringIO import StringIO
+from collections import defaultdict, namedtuple
 
 
 class Iterator(object):
@@ -35,63 +34,74 @@ class Iterator(object):
         return self._cursor < len(self._tokens)
 
 
-Import = namedtuple('Import', 'name alias')
+Import = namedtuple('Import', 'location name alias')
 
 
-LOCATION_ORDER = 'S3L'
+LOCATION_ORDER = 'FS3L'
 
 
 class Imports(object):
-    def __init__(self, source):
+    def __init__(self, index, source):
         self._imports = set()
         self._imports_from = defaultdict(set)
         self._import_begin = self._imports_end = None
         self._source = source
-        reader = StringIO(source)
-        self._tokens = list(tokenize.generate_tokens(reader.readline))
-        self._parse()
+        self._index = index
+        self._parse(source)
 
     def add_import(self, name, alias=None):
-        self._imports.add(Import(name, alias))
+        location = LOCATION_ORDER.index(self._index.location_for(name))
+        self._imports.add(Import(location, name, alias))
 
     def add_import_from(self, module, name, alias=None):
-        self._imports_from[module].add(Import(name, alias))
+        location = LOCATION_ORDER.index(self._index.location_for(module))
+        self._imports_from[module].add(Import(location, name, alias))
 
-    def update_source(self, index):
-        out = StringIO()
-        print self._imports
-        print self._imports_from
-        for expected_location in LOCATION_ORDER:
-            for module, imports in sorted(self._imports_from.iteritems()):
-                location = index.find(module).location
-                if expected_location != location:
-                    continue
-                imports = sorted(imports)
-                out.write('from {module} import {imports}\n'.format(
-                    module=module,
-                    imports=', '.join(
-                        '{name}{alias}'.format(
-                            name=name, alias=' as {alias}'.format(alias=alias) if alias else ''
-                        ) for name, alias in imports)
-                ))
-
+    def get_update(self):
+        groups = []
+        for expected_location in range(len(LOCATION_ORDER)):
+            out = StringIO()
             for imp in sorted(self._imports):
-                location = index.find(imp.name).location
-                if expected_location != location:
+                if expected_location != imp.location:
                     continue
                 out.write('import {module}{alias}\n'.format(
                     module=imp.name,
                     alias='as {alias}'.format(alias=imp.alias) if imp.alias else '',
                 ))
-            out.write('\n')
 
-        lines = self._source.splitlines()
+            for module, imports in sorted(self._imports_from.iteritems()):
+                imports = sorted(imports)
+                if expected_location != imports[0].location:
+                    continue
+                out.write('from {module} import {imports}\n'.format(
+                    module=module,
+                    imports=', '.join(
+                        '{name}{alias}'.format(
+                            name=name, alias=' as {alias}'.format(alias=alias) if alias else ''
+                        ) for _, name, alias in imports)
+                ))
+
+            text = out.getvalue()
+            if text:
+                groups.append(out.getvalue())
+
         start = self._tokens[self._import_begin][2][0] - 1
         end = self._tokens[self._imports_end][2][0] - 1
-        lines[start:end] = [out.getvalue().strip() + '\n\n']
+        if groups:
+            text = '\n'.join(groups) + '\n\n'
+        else:
+            text = ''
+        return start, end, text
+
+    def update_source(self):
+        start, end, text = self.get_update()
+        lines = self._source.splitlines()
+        lines[start:end] = text.splitlines()
         return '\n'.join(lines)
 
-    def _parse(self):
+    def _parse(self, source):
+        reader = StringIO(source)
+        self._tokens = list(tokenize.generate_tokens(reader.readline))
         it = Iterator(self._tokens)
         self._seek_imports(it)
         self._parse_imports(it)
@@ -165,8 +175,9 @@ class Imports(object):
         return 'Imports(imports=%r, imports_from=%r)' % (self.imports, self.imports_from)
 
 
-def update_imports(src, symbols, index):
-    imports = Imports(src)
+def _process_imports(src, symbols, index):
+    print symbols
+    imports = Imports(index, src)
     for symbol in symbols:
         scores = index.symbol_scores(symbol)
         if not scores:
@@ -189,4 +200,14 @@ def update_imports(src, symbols, index):
                 while prefix and seeking[0] != prefix[0]:
                     module.append(prefix.pop(0))
                 imports.add_import_from('.'.join(module), prefix[0])
-    return imports.update_source(index)
+    return imports
+
+
+def get_update(src, symbols, index):
+    imports = _process_imports(src, symbols, index)
+    return imports.get_update()
+
+
+def update_imports(src, symbols, index):
+    imports = _process_imports(src, symbols, index)
+    return imports.update_source()

@@ -1,8 +1,23 @@
 from __future__ import absolute_import
-import ast
+
 from textwrap import dedent
-from .importer import Imports, update_imports
-from .symbols import extract_unresolved_symbols
+
+from importmagic.importer import Imports, update_imports
+from importmagic.symbols import extract_unresolved_symbols
+
+
+def test_deep_import(index):
+    src = dedent("""
+        print os.walk('/')
+         """)
+    symbols = extract_unresolved_symbols(src)
+    assert symbols == set(['os.walk'])
+    new_src = update_imports(src, symbols, index)
+    assert dedent("""
+        import os
+
+        print os.walk('/')
+        """).strip() == new_src
 
 
 def test_update_imports_inserts_initial_imports(index):
@@ -12,15 +27,14 @@ def test_update_imports_inserts_initial_imports(index):
         print basename('sys/foo')
         print path.basename('sys/foo')
         """).strip()
-    st = ast.parse(src)
-    symbols = extract_unresolved_symbols(st)
-    assert symbols == {'os.path.basename', 'sys.path', 'basename', 'path.basename'}
+    symbols = extract_unresolved_symbols(src)
+    assert symbols == set(['os.path.basename', 'sys.path', 'basename', 'path.basename'])
     new_src = update_imports(src, symbols, index)
     assert dedent("""
-        from os import path
-        from os.path import basename
         import os.path
         import sys
+        from os import path
+        from os.path import basename
 
 
         print os.path.basename('sys/foo')
@@ -37,8 +51,7 @@ def test_update_imports_inserts_imports(index):
         print os.path.basename("sys/foo")
         print sys.path[0]
         """).strip()
-    st = ast.parse(src)
-    symbols = extract_unresolved_symbols(st)
+    symbols = extract_unresolved_symbols(src)
     assert symbols == set(['os.path.basename'])
     new_src = update_imports(src, symbols, index)
     assert dedent("""
@@ -80,13 +93,13 @@ def test_parse_imports(index):
         def main():
             pass
         ''').strip()
-    imports = Imports(src)
-    new_src = imports.update_source(index)
+    imports = Imports(index, src)
+    new_src = imports.update_source()
     assert dedent(r'''
-        from os import path, posixpath
-        from os.path import basename
         import os
         import sys
+        from os import path, posixpath
+        from os.path import basename
 
 
         def main():

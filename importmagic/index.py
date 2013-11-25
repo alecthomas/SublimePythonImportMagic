@@ -1,11 +1,14 @@
-import re
-import json
+"""Build an index of top-level symbols from Python modules and packages."""
+
 import ast
-import os
+import json
 import logging
+import os
+import re
 import sys
 from contextlib import contextmanager
 from distutils import sysconfig
+
 
 LIB_LOCATIONS = sorted(set((
     (sysconfig.get_python_lib(standard_lib=True), 'S'),
@@ -14,7 +17,6 @@ LIB_LOCATIONS = sorted(set((
     (sysconfig.get_python_lib(plat_specific=True, prefix=sys.prefix), '3'),
 )), key=lambda l: -len(l[0]))
 
-"""Build an index of top-level symbols from Python modules and packages."""
 
 BLACKLIST_RE = re.compile(r'test', re.I)
 BUILTIN_MODULES = sys.builtin_module_names
@@ -43,6 +45,7 @@ class SymbolIndex(object):
         'os.path': (os.path.__name__, 1.2),
     }
     LOCATIONS = {
+        'F': 'Future',
         '3': 'Third party',
         'S': 'System',
         'L': 'Local',
@@ -59,16 +62,20 @@ class SymbolIndex(object):
         self.location = location
         if parent is None:
             self._merge_aliases()
+            with self.enter('__future__', location='F'):
+                pass
+            with self.enter('__builtin__', location='S'):
+                pass
 
     @classmethod
     def deserialize(self, file):
-        def load(tree, data):
+        def load(tree, data, parent_location):
             for key, value in data.items():
                 if isinstance(value, dict):
                     score = value.pop('.score', 1.0)
-                    location = value.pop('.location', 'L')
+                    location = value.pop('.location', parent_location)
                     with tree.enter(key, score=score, location=location) as subtree:
-                        load(subtree, value)
+                        load(subtree, value, location)
                 else:
                     assert isinstance(value, float), '%s expected to be float was %r' % (key, value)
                     tree.add(key, value)
@@ -77,7 +84,7 @@ class SymbolIndex(object):
         data.pop('.location', None)
         data.pop('.score', None)
         tree = SymbolIndex()
-        load(tree, data)
+        load(tree, data, 'L')
         return tree
 
     def index_source(self, filename, source):
@@ -119,7 +126,7 @@ class SymbolIndex(object):
                 for filename in os.listdir(root):
                     subtree.index_path(os.path.join(root, filename))
 
-    def index_builtin(self, name, location=False):
+    def index_builtin(self, name, location):
         if name.startswith('_'):
             return
         try:
@@ -203,6 +210,19 @@ class SymbolIndex(object):
             if node is None or type(node) is float:
                 return None
         return node
+
+    def location_for(self, path):
+        path = path.split('.')
+        node = self
+        while node._parent:
+            node = node._parent
+        location = node.location
+        for name in path:
+            tree = node._tree.get(name, None)
+            if tree is None or type(tree) is float:
+                return location
+            location = tree.location
+        return location
 
     def add(self, name, score):
         current_score = self._tree.get(name, 0.0)

@@ -1,9 +1,12 @@
 from __future__ import absolute_import
+
 from textwrap import dedent
 
-from .index import SymbolIndex
+from importmagic.index import SymbolIndex
 
 
+# Saving scans for unresolved symbols and imports the most likely module. Like
+# this...
 def test_index_file_with_all():
     src = dedent('''
         __all__ = ['one']

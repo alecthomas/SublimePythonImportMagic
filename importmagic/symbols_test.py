@@ -1,9 +1,7 @@
-from __future__ import absolute_import
-
 import ast
 from textwrap import dedent
 
-from .symbols import UnknownSymbolVisitor, extract_unresolved_symbols, _symbol_series
+from importmagic.symbols import UnknownSymbolVisitor, _symbol_series, extract_unresolved_symbols
 
 
 def test_parser_symbol_in_global_function():
@@ -114,3 +112,11 @@ def test_symbol_from_nested_tuples():
         a = (os, (os.path, sys))
         """)
     assert extract_unresolved_symbols(src) == set(['os', 'os.path', 'sys'])
+
+
+def test_symbol_from_decorator():
+    src = dedent("""
+        @foo.bar(a=waz)
+        def bar(): pass
+        """)
+    assert extract_unresolved_symbols(src) == set(['foo', 'foo.bar', 'waz'])
