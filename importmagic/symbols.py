@@ -14,6 +14,7 @@ class _InvalidSymbol(Exception):
 class Scope(object):
     GLOBALS = ['__name__', '__file__', '__loader__', '__package__', '__path__']
     PYTHON3_BUILTINS = ['PermissionError']
+    ALL_BUILTINS = set(dir(__builtin__)) | set(GLOBALS) | set(PYTHON3_BUILTINS)
 
     def __init__(self, parent=None, define_builtins=True, is_class=False):
         self._parent = parent
@@ -27,10 +28,17 @@ class Scope(object):
         if define_builtins:
             self._define_builtin_symbols()
 
+    @classmethod
+    def from_source(cls, src, trace=False, define_builtins=True):
+        scope = Scope(define_builtins=define_builtins)
+        visitor = UnknownSymbolVisitor(scope, trace=trace)
+        if isinstance(src, basestring):
+            src = ast.parse(src)
+        visitor.visit(src)
+        return scope
+
     def _define_builtin_symbols(self):
-        self._cursor._definitions.update(dir(__builtin__))
-        self._cursor._definitions.update(Scope.GLOBALS)
-        self._cursor._definitions.update(Scope.PYTHON3_BUILTINS)
+        self._cursor._definitions.update(Scope.ALL_BUILTINS)
 
     def define(self, name):
         self._cursor._definitions.add(name)
@@ -50,11 +58,40 @@ class Scope(object):
             self._cursors.pop()
             self._cursor = self._cursors[-1]
 
-    def find_unresolved_references(self):
-        all_unresolved = set()
-        for unresolved in _walk(self, set()):
-            all_unresolved.update(unresolved)
-        return all_unresolved
+    def find_unresolved_and_unreferenced_symbols(self):
+        """Find any unresolved symbols, and unreferenced symbols from this scope.
+
+        :returns: ({unresolved}, {unreferenced})
+        """
+        unresolved = set()
+        unreferenced = self._definitions.copy()
+        self._collect_unresolved_and_unreferenced(set(), set(), unresolved, unreferenced,
+                                                  frozenset(self._definitions), start=True)
+        return unresolved, unreferenced - Scope.ALL_BUILTINS
+
+    def _collect_unresolved_and_unreferenced(self, definitions, definitions_excluding_top,
+                                             unresolved, unreferenced, top, start=False):
+        scope_definitions = definitions | self._definitions
+        scope_definitions_excluding_top = definitions_excluding_top | (set() if start else self._definitions)
+        # When we're in a class, don't export definitions to child scopes
+        if not self._is_class:
+            definitions = scope_definitions
+            definitions_excluding_top = scope_definitions_excluding_top
+
+        for reference in self._references:
+            symbols = set(_symbol_series(reference))
+            # Symbol has no definition anywhere in ancestor scopes.
+            if symbols.isdisjoint(scope_definitions):
+                unresolved.add(reference)
+            # Symbol is referenced only in the top level scope.
+            elif not symbols.isdisjoint(top) and symbols.isdisjoint(scope_definitions_excluding_top):
+                unreferenced -= symbols
+
+        # Recurse
+        for child in self._children:
+            child._collect_unresolved_and_unreferenced(
+                definitions, definitions_excluding_top, unresolved, unreferenced, top,
+            )
 
     def __repr__(self):
         return 'Scope(definitions=%r, references=%r, children=%r)' \
@@ -215,29 +252,7 @@ def _collect(paths, node):
     paths.append('.'.join(path))
 
 
-def _walk(scope, definitions):
-    scope_definitions = definitions | scope._definitions
-    # When we're in a class, don't export definitions to child function scopes
-    if not scope._is_class:
-        definitions = scope_definitions
-    unresolved = set()
-    for reference in scope._references:
-        for symbol in _symbol_series(reference):
-            if symbol in scope_definitions:
-                break
-        else:
-            unresolved.add(reference)
-
-    yield unresolved
-    for child in scope._children:
-        for unresolved in _walk(child, definitions):
-            yield unresolved
-
-
-def extract_unresolved_symbols(src, trace=False, define_builtins=True):
-    scope = Scope(define_builtins=define_builtins)
-    visitor = UnknownSymbolVisitor(scope, trace=trace)
-    if isinstance(src, basestring):
-        src = ast.parse(src)
-    visitor.visit(src)
-    return scope.find_unresolved_references()
+def extract_unresolved_symbols(src):
+    scope = Scope.from_source(src)
+    symbols, _ = scope.find_unresolved_and_unreferenced_symbols()
+    return symbols

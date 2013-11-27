@@ -18,8 +18,8 @@ LIB_LOCATIONS = sorted(set((
 )), key=lambda l: -len(l[0]))
 
 
-BLACKLIST_RE = re.compile(r'test', re.I)
-BUILTIN_MODULES = sys.builtin_module_names
+BLACKLIST_RE = re.compile(r'\btest[s]?|test[s]?\b', re.I)
+BUILTIN_MODULES = sys.builtin_module_names + ('os',)
 
 
 # TODO: Update scores based on import reference frequency.
@@ -99,7 +99,7 @@ class SymbolIndex(object):
     def index_file(self, module, filename):
         if BLACKLIST_RE.search(filename):
             return
-        with self.enter(module, location=location_for(filename)) as subtree:
+        with self.enter(module, location=self._determine_location_for(filename)) as subtree:
             with open(filename) as fd:
                 subtree.index_source(filename, fd.read())
 
@@ -110,13 +110,13 @@ class SymbolIndex(object):
         """
         if os.path.basename(root).startswith('_'):
             return
-        location = location_for(root)
+        location = self._determine_location_for(root)
         if os.path.isfile(root):
             basename, ext = os.path.splitext(os.path.basename(root))
+            if basename == '__init__':
+                basename = None
             ext = ext.lower()
             if ext == '.py':
-                if basename == '__init__':
-                    basename = None
                 self.index_file(basename, root)
             elif ext in ('.dll', '.so'):
                 self.index_builtin('.'.join(filter(None, [self.path(), basename])), location=location)
@@ -201,6 +201,7 @@ class SymbolIndex(object):
         self._exports[name] = score
 
     def find(self, path):
+        """Return the node for a path, or None."""
         path = path.split('.')
         node = self
         while node._parent:
@@ -212,6 +213,7 @@ class SymbolIndex(object):
         return node
 
     def location_for(self, path):
+        """Return the location code for a path."""
         path = path.split('.')
         node = self
         while node._parent:
@@ -276,6 +278,12 @@ class SymbolIndex(object):
             path, score = self._score_key(value, key[1:])
             return [key[0]] + path, score + value.score
 
+    def _determine_location_for(self, path):
+        for dir, location in LIB_LOCATIONS:
+            if path.startswith(dir):
+                return location
+        return 'L'
+
 
 class SymbolVisitor(ast.NodeVisitor):
     def __init__(self, tree):
@@ -316,13 +324,6 @@ class SymbolVisitor(ast.NodeVisitor):
         # NOTE: In lieu of actually parsing if/else blocks at the top-level,
         # we'll just ignore them.
         pass
-
-
-def location_for(path):
-    for dir, location in LIB_LOCATIONS:
-        if path.startswith(dir):
-            return location
-    return 'L'
 
 
 if __name__ == '__main__':

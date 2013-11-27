@@ -1,8 +1,8 @@
 """Imports new symbols."""
 
 import tokenize
-from cStringIO import StringIO
-from collections import defaultdict, namedtuple
+from collections import defaultdict
+from StringIO import StringIO
 
 
 class Iterator(object):
@@ -34,7 +34,27 @@ class Iterator(object):
         return self._cursor < len(self._tokens)
 
 
-Import = namedtuple('Import', 'location name alias')
+class Import(object):
+    def __init__(self, location, name, alias):
+        self.location = location
+        self.name = name
+        self.alias = alias
+
+    def __repr__(self):
+        return 'Import(location=%r, name=%r, alias=%r)' % \
+            (self.location, self.name, self.alias)
+
+    def __hash__(self):
+        return hash((self.location, self.name, self.alias))
+
+    def __eq__(self, other):
+        return self.location == other.location and self.name == other.name and self.alias == other.alias
+
+    def __ne__(self, other):
+        return self.location != other.location or self.name != other.name or self.alias != other.alias
+
+    def __lt__(self, other):
+        return self.location < other.location or self.name < other.name or self.alias < other.alias
 
 
 LOCATION_ORDER = 'FS3L'
@@ -71,14 +91,14 @@ class Imports(object):
 
             for module, imports in sorted(self._imports_from.iteritems()):
                 imports = sorted(imports)
-                if expected_location != imports[0].location:
+                if not imports or expected_location != imports[0].location:
                     continue
                 out.write('from {module} import {imports}\n'.format(
                     module=module,
                     imports=', '.join(
                         '{name}{alias}'.format(
-                            name=name, alias=' as {alias}'.format(alias=alias) if alias else ''
-                        ) for _, name, alias in imports)
+                            name=i.name, alias=' as {alias}'.format(alias=i.alias) if i.alias else ''
+                        ) for i in imports)
                 ))
 
             text = out.getvalue()
@@ -127,7 +147,7 @@ class Imports(object):
                 self._imports_end = index + 1
 
         if self._import_begin is None:
-            self._import_begin = self._imports_end = 0
+            self._import_begin = self._imports_end = index
 
     def _seek_imports(self, it):
         indentation = 0
@@ -142,12 +162,13 @@ class Imports(object):
                 continue
 
             # Don't process imports unless they're at module level. Safety first people!
-            if indentation:
+            if indentation or token[0] in (3, 4, 53, 54):
                 continue
 
             if token[1] in ('import', 'from'):
                 it.rewind()
-                break
+
+            break
 
     def _parse_import(self, type, tokens):
         module = None
@@ -176,7 +197,6 @@ class Imports(object):
 
 
 def _process_imports(src, symbols, index):
-    print symbols
     imports = Imports(index, src)
     for symbol in symbols:
         scores = index.symbol_scores(symbol)
@@ -200,6 +220,9 @@ def _process_imports(src, symbols, index):
                 while prefix and seeking[0] != prefix[0]:
                     module.append(prefix.pop(0))
                 imports.add_import_from('.'.join(module), prefix[0])
+    print 'imports'
+    print imports._imports
+    print imports._imports_from
     return imports
 
 

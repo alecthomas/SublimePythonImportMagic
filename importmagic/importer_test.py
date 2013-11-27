@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 from textwrap import dedent
 
-from importmagic.importer import Imports, update_imports
+from importmagic.importer import update_imports
 from importmagic.symbols import extract_unresolved_symbols
 
 
@@ -93,8 +93,8 @@ def test_parse_imports(index):
         def main():
             pass
         ''').strip()
-    imports = Imports(index, src)
-    new_src = imports.update_source()
+    symbols = extract_unresolved_symbols(src)
+    new_src = update_imports(src, symbols, index)
     assert dedent(r'''
         import os
         import sys
@@ -104,4 +104,46 @@ def test_parse_imports(index):
 
         def main():
             pass
+        ''').strip() == new_src
+
+
+def test_imports_inserted_after_preamble(index):
+    src = dedent('''
+        # Comment
+
+        """Docstring"""
+
+        def func(n):
+            print basename(n)
+        ''').strip()
+    symbols = extract_unresolved_symbols(src)
+    new_src = update_imports(src, symbols, index)
+    assert dedent('''
+        # Comment
+
+        """Docstring"""
+
+        from os.path import basename
+
+
+        def func(n):
+            print basename(n)
+        ''').strip() == new_src
+
+
+def test_imports_removes_unused(index):
+    src = dedent('''
+        import sys
+
+        def func(n):
+            print basename(n)
+        ''').strip()
+    symbols = extract_unresolved_symbols(src)
+    new_src = update_imports(src, symbols, index)
+    assert dedent('''
+        from os.path import basename
+
+
+        def func(n):
+            print basename(n)
         ''').strip() == new_src
