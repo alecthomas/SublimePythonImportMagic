@@ -73,7 +73,8 @@ class Scope(object):
                                              unresolved, unreferenced, top, start=False):
         scope_definitions = definitions | self._definitions
         scope_definitions_excluding_top = definitions_excluding_top | (set() if start else self._definitions)
-        # When we're in a class, don't export definitions to child scopes
+
+        # When we're in a class, don't export definitions to descendant scopes
         if not self._is_class:
             definitions = scope_definitions
             definitions_excluding_top = scope_definitions_excluding_top

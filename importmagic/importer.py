@@ -77,6 +77,15 @@ class Imports(object):
         location = LOCATION_ORDER.index(self._index.location_for(module))
         self._imports_from[module].add(Import(location, name, alias))
 
+    def remove(self, references):
+        for imp in list(self._imports):
+            if imp.name in references:
+                self._imports.remove(imp)
+        for imports in list(self._imports_from.values()):
+            for imp in list(imports):
+                if imp.name in references:
+                    imports.remove(imp)
+
     def get_update(self):
         groups = []
         for expected_location in range(len(LOCATION_ORDER)):
@@ -196,16 +205,18 @@ class Imports(object):
         return 'Imports(imports=%r, imports_from=%r)' % (self.imports, self.imports_from)
 
 
-def _process_imports(src, symbols, index):
+def _process_imports(src, index, unresolved, unreferenced):
     imports = Imports(index, src)
-    for symbol in symbols:
+    imports.remove(unreferenced)
+    for symbol in unresolved:
         scores = index.symbol_scores(symbol)
         if not scores:
             continue
         _, module, variable = scores[0]
+        print module, variable
         # Direct module import: eg. os.path
         if variable is None:
-            imports.add_import(symbol)
+            imports.add_import(module)
         else:
             if symbol.startswith(module):
                 # sys.path              sys path          ->    import sys
@@ -220,17 +231,14 @@ def _process_imports(src, symbols, index):
                 while prefix and seeking[0] != prefix[0]:
                     module.append(prefix.pop(0))
                 imports.add_import_from('.'.join(module), prefix[0])
-    print 'imports'
-    print imports._imports
-    print imports._imports_from
     return imports
 
 
-def get_update(src, symbols, index):
-    imports = _process_imports(src, symbols, index)
+def get_update(src, index, unresolved, unreferenced):
+    imports = _process_imports(src, index, unresolved, unreferenced)
     return imports.get_update()
 
 
-def update_imports(src, symbols, index):
-    imports = _process_imports(src, symbols, index)
+def update_imports(src, index, unresolved, unreferenced):
+    imports = _process_imports(src, index, unresolved, unreferenced)
     return imports.update_source()

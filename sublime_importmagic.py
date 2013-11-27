@@ -3,7 +3,7 @@ import sublime_plugin
 
 from importmagic.importer import get_update
 from importmagic.index import SymbolIndex
-from importmagic.symbols import extract_unresolved_symbols
+from importmagic.symbols import Scope
 
 
 class PythonImportMagic(sublime_plugin.EventListener):
@@ -16,10 +16,11 @@ class PythonImportMagic(sublime_plugin.EventListener):
 
         # Extract symbols from source
         src = view.substr(sublime.Region(0, view.size())).encode('utf-8')
-        symbols = extract_unresolved_symbols(src)
+        scope = Scope.from_source(src)
+        unresolved, unreferenced = scope.find_unresolved_and_unreferenced_symbols()
 
         # Get update region and replacement text.
-        start_line, end_line, text = get_update(src, symbols, self.index)
+        start_line, end_line, text = get_update(src, self.index, unresolved, unreferenced)
 
         # Get region that needs updating
         start = view.text_point(start_line, 0)
