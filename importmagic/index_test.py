@@ -18,7 +18,7 @@ def test_index_file_with_all():
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
         subtree.index_source('test.py', src)
-    assert subtree.serialize() == '{".location": "L", ".score": 1.0, "one": 1.0}'
+    assert subtree.serialize() == '{".location": "L", ".score": 1.0, "one": 1.1}'
 
 
 def test_index_if_name_main():
@@ -44,7 +44,7 @@ def test_index_symbol_scores():
             path_tree.index_source('os.py', src)
     assert tree.symbol_scores('walk')[0][1:] == ('os.path', 'walk')
     assert tree.symbol_scores('os') == [(1.0, 'os', None)]
-    assert tree.symbol_scores('os.path.walk') == [(3.2, 'os.path', 'walk')]
+    assert tree.symbol_scores('os.path.walk') == [(3.3, 'os.path', 'walk')]
 
 
 def test_index_score_deep_unknown_attribute(index):

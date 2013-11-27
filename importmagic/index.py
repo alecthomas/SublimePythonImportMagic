@@ -303,11 +303,11 @@ class SymbolVisitor(ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         if not node.name.startswith('_'):
-            self._tree.add(node.name, 1.0)
+            self._tree.add(node.name, 1.1)
 
     def visit_FunctionDef(self, node):
         if not node.name.startswith('_'):
-            self._tree.add(node.name, 1.0)
+            self._tree.add(node.name, 1.1)
 
     def visit_Assign(self, node):
         # TODO: Handle __all__
@@ -316,9 +316,9 @@ class SymbolVisitor(ast.NodeVisitor):
             if name.id == '__all__' and isinstance(node.value, ast.List):
                 for subnode in node.value.elts:
                     if isinstance(subnode, ast.Str):
-                        self._tree.add_explicit_export(subnode.s, 1.0)
+                        self._tree.add_explicit_export(subnode.s, 1.2)
             elif not name.id.startswith('_'):
-                self._tree.add(name.id, 1.0)
+                self._tree.add(name.id, 1.1)
 
     def visit_If(self, node):
         # NOTE: In lieu of actually parsing if/else blocks at the top-level,

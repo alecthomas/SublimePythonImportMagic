@@ -21,6 +21,15 @@ def test_deep_import_of_unknown_symbol(index):
         """).strip() == new_src
 
 
+def test_import_future_preserved(index):
+    src = 'from __future__ import absolute_import'
+    unresolved, unreferenced = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert not unresolved
+    assert not unreferenced
+    new_src = update_imports(src, index, unresolved, unreferenced).strip()
+    assert src == new_src
+
+
 def test_update_imports_inserts_initial_imports(index):
     src = dedent("""
         print os.path.basename('sys/foo')

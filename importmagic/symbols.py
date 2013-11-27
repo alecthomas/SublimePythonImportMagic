@@ -200,7 +200,12 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
             if name.name == '*':
                 # TODO: Do something.
                 continue
-            self._scope.define(name.asname or name.name.split('.')[0])
+            symbol = name.asname or name.name.split('.')[0]
+            self._scope.define(symbol)
+            # Explicitly add a reference for __future__ imports so they don't
+            # get pruned.
+            if node.module == '__future__':
+                self._scope.reference(symbol)
         self.generic_visit(node)
 
     def visit_Import(self, node):
@@ -219,7 +224,8 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_For(self, node):
-        self._define(node.target)
+        for symbol in self._paths_from_node(node.target):
+            self._scope.define(symbol)
         self.generic_visit(node)
 
 
@@ -250,10 +256,5 @@ def _collect(paths, node):
     except _InvalidSymbol:
         return
     path.reverse()
-    paths.append('.'.join(path))
-
-
-def extract_unresolved_symbols(src):
-    scope = Scope.from_source(src)
-    symbols, _ = scope.find_unresolved_and_unreferenced_symbols()
-    return symbols
+    if path:
+        paths.append('.'.join(path))

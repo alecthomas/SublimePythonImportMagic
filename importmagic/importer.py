@@ -1,8 +1,8 @@
 """Imports new symbols."""
 
 import tokenize
-from collections import defaultdict
 from StringIO import StringIO
+from collections import defaultdict
 
 
 class Iterator(object):
@@ -20,6 +20,9 @@ class Iterator(object):
         index = self._cursor
         self._cursor += 1
         return index, token
+
+    def peek(self):
+        return self._tokens[self._cursor] if self else None
 
     def until(self, type):
         tokens = []
@@ -81,7 +84,7 @@ class Imports(object):
         for imp in list(self._imports):
             if imp.name in references:
                 self._imports.remove(imp)
-        for imports in list(self._imports_from.values()):
+        for name, imports in self._imports_from.iteritems():
             for imp in list(imports):
                 if imp.name in references:
                     imports.remove(imp)
@@ -115,7 +118,7 @@ class Imports(object):
                 groups.append(out.getvalue())
 
         start = self._tokens[self._import_begin][2][0] - 1
-        end = self._tokens[self._imports_end][2][0] - 1
+        end = self._tokens[min(len(self._tokens) - 1, self._imports_end)][2][0] - 1
         if groups:
             text = '\n'.join(groups) + '\n\n'
         else:
@@ -187,9 +190,15 @@ class Imports(object):
                 module += tokens.pop()
             assert tokens.pop() == 'import'
         while tokens:
-            name = tokens.pop()
+            name = ''
+            while True:
+                name += tokens.pop()
+                next = tokens.pop() if tokens else None
+                if next == '.':
+                    name += next
+                else:
+                    break
             alias = None
-            next = tokens.pop() if tokens else None
             if next == 'as':
                 alias = tokens.pop()
                 if alias == name:
@@ -213,7 +222,6 @@ def _process_imports(src, index, unresolved, unreferenced):
         if not scores:
             continue
         _, module, variable = scores[0]
-        print module, variable
         # Direct module import: eg. os.path
         if variable is None:
             imports.add_import(module)
