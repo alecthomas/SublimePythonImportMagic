@@ -105,7 +105,6 @@ class Imports(object):
                 imports = sorted(imports)
                 if not imports or expected_location != imports[0].location:
                     continue
-                lines = []
                 line = 'from {module} import '.format(module=module)
                 clauses = ['{name}{alias}'.format(
                            name=i.name,
@@ -115,12 +114,12 @@ class Imports(object):
                 while clauses:
                     clause = clauses.pop()
                     if len(line) + len(clause) + 1 > 80:
-                        line += '\\'
-                        lines.append(line)
+                        line += '\\\n'
+                        out.write(line)
                         line = '    '
                     line += clause + (', ' if clauses else '')
-                lines.append(line)
-                out.write('\n'.join(lines))
+                if line.strip():
+                    out.write(line + '\n')
 
             text = out.getvalue()
             if text:

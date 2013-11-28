@@ -165,16 +165,20 @@ def test_from_import_as(index):
 def test_importer_wrapping(index):
     src = dedent('''
         from injector import Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+        from waffle import stuff
 
-        Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+        Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton, stuff
         ''').strip()
     expected_src = dedent('''
         from injector import Binder, Injector, InstanceProvider, Key, MappingKey, \\
             Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+        from waffle import stuff
 
-        Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+
+        Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton, stuff
         ''').strip()
 
     scope = Scope.from_source(src)
     new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols())
+    print new_src
     assert expected_src.strip() == new_src.strip()
