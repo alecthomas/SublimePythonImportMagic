@@ -151,3 +151,30 @@ def test_imports_removes_unused(index):
         def func(n):
             print basename(n)
         ''').strip() == new_src
+
+
+def test_from_import_as(index):
+    src = dedent('''
+        from clastic import MiddleWare as WebMiddleWare
+        ''').strip()
+    scope = Scope.from_source(src)
+    new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols())
+    assert src == new_src.strip()
+
+
+def test_importer_wrapping(index):
+    src = dedent('''
+        from injector import Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+
+        Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+        ''').strip()
+    expected_src = dedent('''
+        from injector import Binder, Injector, InstanceProvider, Key, MappingKey, \\
+            Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+
+        Binder, Injector, InstanceProvider, Key, MappingKey, Module, Scope, ScopeDecorator, SequenceKey, inject, provides, singleton
+        ''').strip()
+
+    scope = Scope.from_source(src)
+    new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols())
+    assert expected_src.strip() == new_src.strip()

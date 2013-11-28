@@ -105,13 +105,22 @@ class Imports(object):
                 imports = sorted(imports)
                 if not imports or expected_location != imports[0].location:
                     continue
-                out.write('from {module} import {imports}\n'.format(
-                    module=module,
-                    imports=', '.join(
-                        '{name}{alias}'.format(
-                            name=i.name, alias=' as {alias}'.format(alias=i.alias) if i.alias else ''
-                        ) for i in imports)
-                ))
+                lines = []
+                line = 'from {module} import '.format(module=module)
+                clauses = ['{name}{alias}'.format(
+                           name=i.name,
+                           alias=' as {alias}'.format(alias=i.alias) if i.alias else ''
+                           ) for i in imports]
+                clauses.reverse()
+                while clauses:
+                    clause = clauses.pop()
+                    if len(line) + len(clause) + 1 > 80:
+                        line += '\\'
+                        lines.append(line)
+                        line = '    '
+                    line += clause + (', ' if clauses else '')
+                lines.append(line)
+                out.write('\n'.join(lines))
 
             text = out.getvalue()
             if text:
@@ -198,12 +207,14 @@ class Imports(object):
                     name += next
                 else:
                     break
+
             alias = None
             if next == 'as':
                 alias = tokens.pop()
                 if alias == name:
                     alias = None
-            elif next == ',':
+                next = tokens.pop() if tokens else None
+            if next == ',':
                 pass
             if type == 'import':
                 self.add_import(name, alias=alias)
