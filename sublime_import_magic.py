@@ -44,7 +44,7 @@ class Indexer(object):
         else:
             log('Indexing {0}', root)
             index = SymbolIndex()
-            index.build_index(sys.path)
+            index.build_index([root] + sys.path)
             with open(index_file, 'w') as fd:
                 fd.write(index.serialize())
             log('Finished generating index for {0}', root)
