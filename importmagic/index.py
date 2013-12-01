@@ -138,7 +138,7 @@ class SymbolIndex(object):
         with self.enter(name, location=location) as subtree:
             for key, value in vars(module).iteritems():
                 if not key.startswith('_'):
-                    subtree.add(key, 1.0)
+                    subtree.add(key, 1.1)
 
     def build_index(self, paths):
         for builtin in BUILTIN_MODULES:

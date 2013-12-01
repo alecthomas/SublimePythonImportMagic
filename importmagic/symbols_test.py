@@ -1,7 +1,8 @@
 import ast
 from textwrap import dedent
 
-from importmagic.symbols import Scope, UnknownSymbolVisitor, _symbol_series
+from importmagic.symbols import Scope, SymbolCollector, UnknownSymbolVisitor, \
+    _symbol_series
 
 
 def test_parser_symbol_in_global_function():
@@ -91,7 +92,7 @@ def test_path_from_node_function():
         ''')
     st = ast.parse(src)
     visitor = UnknownSymbolVisitor()
-    assert visitor._paths_from_node(st.body[0].value) == ['os.path.basename']
+    assert visitor._paths_from_node(st.body[0].value) == set(['os.path.basename'])
 
 
 def test_path_from_node_subscript():
@@ -100,7 +101,7 @@ def test_path_from_node_subscript():
         ''')
     st = ast.parse(src)
     visitor = UnknownSymbolVisitor()
-    assert visitor._paths_from_node(st.body[0].value) == ['sys.path']
+    assert visitor._paths_from_node(st.body[0].value) == set(['sys.path'])
 
 
 def test_symbol_series():
@@ -149,3 +150,30 @@ def test_find_unresolved_and_unreferenced_symbols():
     assert unresolved == set(['urllib.urlquote'])
     assert unreferenced == set(['A', 'urllib2', 'f'])
 
+
+class TestSymbolCollector(object):
+    def _collect(self, src):
+        st = ast.parse(src, '', 'exec').body[0].value
+        symbols = set()
+        collector = SymbolCollector(symbols)
+        collector.visit(st)
+        collector.flush()
+        return symbols
+
+    def test_attribute(self):
+        assert self._collect('foo.bar') == set(['foo.bar'])
+
+    def test_tuple(self):
+        assert self._collect('(foo, bar, (waz, foo))') == set(['foo', 'bar', 'foo', 'waz'])
+
+    def test_chained_calls(self):
+        assert self._collect('foo(bar).waz(baz)') == set(['foo', 'bar', 'baz'])
+
+    def test_chained_subscript(self):
+        assert self._collect('foo[bar].waz(baz)') == set(['foo', 'bar', 'baz'])
+
+    def test_attribute_then_call(self):
+        assert self._collect('foo.bar(waz)') == set(['foo.bar', 'waz'])
+
+    def test_deep_attributes(self):
+        assert self._collect('foo.bar.waz') == set(['foo.bar.waz'])

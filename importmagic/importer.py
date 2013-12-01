@@ -6,9 +6,10 @@ from collections import defaultdict
 
 
 class Iterator(object):
-    def __init__(self, tokens):
+    def __init__(self, tokens, start=None, end=None):
         self._tokens = tokens
-        self._cursor = 0
+        self._cursor = start or 0
+        self._end = end or len(self._tokens)
 
     def rewind(self):
         self._cursor -= 1
@@ -34,7 +35,7 @@ class Iterator(object):
         return tokens
 
     def __nonzero__(self):
-        return self._cursor < len(self._tokens)
+        return self._cursor < self._end
 
 
 class Import(object):
@@ -143,34 +144,21 @@ class Imports(object):
         reader = StringIO(source)
         self._tokens = list(tokenize.generate_tokens(reader.readline))
         it = Iterator(self._tokens)
-        self._seek_imports(it)
+        self._import_begin, self._imports_end = self._find_import_range(it)
+        it = Iterator(self._tokens, start=self._import_begin, end=self._imports_end)
         self._parse_imports(it)
 
-    def _parse_imports(self, it):
-        while it:
-            index, token = it.next()
+    def _find_import_range(self, it):
+        ranges = self._find_import_ranges(it)
+        start, end = ranges[0][1:]
+        return start, end
 
-            if token[1] not in ('import', 'from') and token[1].strip():
-                break
-
-            type = token[1]
-            if type in ('import', 'from'):
-                if self._import_begin is None:
-                    self._import_begin = index
-                tokens = it.until(tokenize.NEWLINE)
-                self._imports_end = tokens[-1][0] + 1
-                tokens = [t[1] for i, t in tokens
-                          if t[0] == tokenize.NAME or t[1] in ',.']
-                tokens.reverse()
-                self._parse_import(type, tokens)
-            else:
-                self._imports_end = index + 1
-
-        if self._import_begin is None:
-            self._import_begin = self._imports_end = index
-
-    def _seek_imports(self, it):
+    def _find_import_ranges(self, it):
+        ranges = []
         indentation = 0
+        explicit = False
+        size = 0
+        start = None
         while it:
             index, token = it.next()
 
@@ -181,14 +169,53 @@ class Imports(object):
                 indentation += 1
                 continue
 
-            # Don't process imports unless they're at module level. Safety first people!
-            if indentation or token[0] in (3, 4, 53, 54):
+            if indentation:
                 continue
 
-            if token[1] in ('import', 'from'):
-                it.rewind()
+            # Explicitly tell importmagic to manage a particular block of imports.
+            if token[1] == '# importmagic: manage':
+                explicit = True
+            elif token[0] in (3, 4, 53, 54):
+                continue
 
-            break
+            if not ranges:
+                ranges.append((0, index, index))
+
+            if token[1] in ('import', 'from'):
+                if start is None:
+                    start = index
+                size += 1
+                while it:
+                    token = it.peek()
+                    if token[0] == tokenize.NEWLINE:
+                        break
+                    index, _ = it.next()
+            elif start is not None and token[1].strip():
+                ranges.append((size, start, index))
+                start = None
+                size = 0
+                if explicit:
+                    ranges = ranges[-1:]
+                    break
+        if start is not None:
+            ranges.append((size, start, index))
+        ranges.sort(reverse=True)
+        return ranges
+
+    def _parse_imports(self, it):
+        while it:
+            index, token = it.next()
+
+            if token[1] not in ('import', 'from') and token[1].strip():
+                break
+
+            type = token[1]
+            if type in ('import', 'from'):
+                tokens = it.until(tokenize.NEWLINE)
+                tokens = [t[1] for i, t in tokens
+                          if t[0] == tokenize.NAME or t[1] in ',.']
+                tokens.reverse()
+                self._parse_import(type, tokens)
 
     def _parse_import(self, type, tokens):
         module = None

@@ -164,7 +164,7 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
 
         eg. Given the source "os.path.basename(path)" we would extract ['os', 'path', 'basename']
         """
-        paths = []
+        paths = set()
 
         _collect(paths, target)
         return paths
@@ -182,6 +182,7 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
     def visit_Call(self, node):
         self._reference(node)
         for arg in node.args + node.keywords + filter(None, [node.starargs, node.kwargs]):
+            print 'arg', ast.dump(arg)
             self.visit(arg)
 
     def visit_Attribute(self, node):
@@ -198,7 +199,7 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
     def visit_ImportFrom(self, node):
         for name in node.names:
             if name.name == '*':
-                # TODO: Do something.
+                # TODO: Do something?
                 continue
             symbol = name.asname or name.name.split('.')[0]
             self._scope.define(symbol)
@@ -229,32 +230,62 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _collect_symbol(paths, path, node):
-    if isinstance(node, ast.Tuple):
+class SymbolCollector(ast.NodeVisitor):
+    def __init__(self, symbols):
+        self._symbols = symbols
+        self._symbol = []
+
+    def _collect(self, node):
+        collector = SymbolCollector(self._symbols)
+        collector.visit(node)
+        collector.flush()
+
+    def flush(self):
+        if self._symbol:
+            self._symbols.add('.'.join(self._symbol))
+            self._symbol = []
+
+    def visit_Tuple(self, node):
         for elt in node.elts:
-            _collect(paths, elt)
-    elif isinstance(node, ast.Attribute):
-        path.append(node.attr)
-        _collect_symbol(paths, path, node.value)
-    elif isinstance(node, ast.Subscript):
-        path[:] = []
-        _collect_symbol(paths, path, node.value)
-    elif isinstance(node, ast.Call):
-        path[:] = []
-        _collect_symbol(paths, path, node.func)
-    elif isinstance(node, ast.Name):
-        path.append(node.id)
-    else:
-        raise _InvalidSymbol('unsupported node type %r' % node)
+            self._collect(elt)
+
+    def visit_Attribute(self, node):
+        if isinstance(node.value, ast.Name):
+            self._symbol.append(node.value.id)
+            self._symbol.append(node.attr)
+        elif isinstance(node.value, ast.Attribute):
+            self.visit(node.value)
+            self._symbol.append(node.attr)
+        else:
+            self.flush()
+            self.visit(node.value)
+            self.flush()
+
+    def visit_Subscript(self, node):
+        self.visit(node.value)
+        self.flush()
+        self._collect(node.slice)
+
+    def visit_Call(self, node):
+        self.visit(node.func)
+        self.flush()
+        for arg in node.args + node.keywords + filter(None, [node.starargs, node.kwargs]):
+            self._collect(arg)
+
+    def visit_Name(self, node):
+        self._symbol.append(node.id)
 
 
 def _collect(paths, node):
-    path = []
+    collector = SymbolCollector(paths)
+    collector.visit(node)
+    collector.flush()
 
-    try:
-        _collect_symbol(paths, path, node)
-    except _InvalidSymbol:
-        return
-    path.reverse()
-    if path:
-        paths.append('.'.join(path))
+
+if __name__ == '__main__':
+    with open(sys.argv[1]) as fd:
+        scope = Scope.from_source(fd.read())
+    unresolved, unreferenced = scope.find_unresolved_and_unreferenced_symbols()
+    from pprint import pprint
+    pprint(unresolved)
+    pprint(unreferenced)

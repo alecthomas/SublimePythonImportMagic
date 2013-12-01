@@ -179,6 +179,31 @@ def test_importer_wrapping(index):
         ''').strip()
 
     scope = Scope.from_source(src)
-    new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols())
-    print new_src
-    assert expected_src.strip() == new_src.strip()
+    new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols()).strip()
+    assert expected_src == new_src
+
+
+def test_importer_directives(index):
+    src = dedent('''
+        from gevent.monkey import patch_all
+        patch_all()
+
+        # importmagic: manage
+        import re
+        import sys
+
+        print os.path.basename('moo')
+        ''').strip()
+    expected_src = dedent('''
+        from gevent.monkey import patch_all
+        patch_all()
+
+        # importmagic: manage
+        import os.path
+
+
+        print os.path.basename('moo')
+        ''').strip()
+    scope = Scope.from_source(src)
+    new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols()).strip()
+    assert expected_src == new_src

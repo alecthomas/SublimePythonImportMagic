@@ -1,10 +1,11 @@
 import os
 import os.path
+import time
 import sys
 from threading import RLock, Thread
 
-import sublime
 import sublime_plugin
+import sublime
 
 from importmagic.importer import get_update
 from importmagic.index import SymbolIndex
@@ -33,6 +34,7 @@ class Indexer(object):
             self._threads[root].start()
 
     def _indexer(self, root, index_file):
+        time.sleep(0.5)
         sublime.status_message('Loading index {0}'.format(root))
         if os.path.exists(index_file):
             log('Loading index for {0}', root)
@@ -44,7 +46,10 @@ class Indexer(object):
         else:
             log('Indexing {0}', root)
             index = SymbolIndex()
-            index.build_index([root] + sys.path)
+            paths = sys.path[:]
+            if root not in paths:
+                paths.insert(0, root)
+            index.build_index(paths)
             with open(index_file, 'w') as fd:
                 fd.write(index.serialize())
             log('Finished generating index for {0}', root)
@@ -63,9 +68,6 @@ class PythonImportMagic(sublime_plugin.EventListener):
             return
 
         return self.indexer.index(self._get_project_root(view))
-
-    def on_load(self, view):
-        self._index_for_view(view)
 
     def on_pre_save(self, view):
         index = self._index_for_view(view)
@@ -93,10 +95,18 @@ class PythonImportMagic(sublime_plugin.EventListener):
             view.end_edit(edit)
 
     def _get_project_root(self, view):
-        dir = self._get_working_dir(view)
-        while os.path.exists(os.path.join(dir, '__init__.py')):
-            dir = os.path.dirname(dir)
-        return dir
+        try:  # handle case with no open folder
+            return view.window().folders()[0]
+        except IndexError:
+            dir = self._get_working_dir(view)
+            last_package = None
+            while not os.path.exists(os.path.join(dir, '.index.json')):
+                if os.path.exists(os.path.join(dir, '__init__.py')):
+                    last_package = dir
+                dir = os.path.dirname(dir)
+            if os.path.dirname(dir) == dir:
+                return last_package
+            return dir
 
     def _get_working_dir(self, view):
         file_name = self._active_file_name(view)
