@@ -1,8 +1,6 @@
-import ast
 from textwrap import dedent
 
-from importmagic.symbols import Scope, SymbolCollector, UnknownSymbolVisitor, \
-    _symbol_series
+from importmagic.symbols import Scope, _symbol_series
 
 
 def test_parser_symbol_in_global_function():
@@ -82,26 +80,24 @@ def test_parser_class_methods_namespace_correctly():
 
             setter = set_value  # Should be resolved
         ''')
-    symbols, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
-    assert symbols == set(['get_value'])
+    unresolved, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert unresolved == set(['get_value'])
 
 
 def test_path_from_node_function():
     src = dedent('''
         os.path.basename('foo/bar').tolower()
         ''')
-    st = ast.parse(src)
-    visitor = UnknownSymbolVisitor()
-    assert visitor._paths_from_node(st.body[0].value) == set(['os.path.basename'])
+    unresolved, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert unresolved == set(['os.path.basename'])
 
 
 def test_path_from_node_subscript():
     src = dedent('''
         sys.path[0].tolower()
         ''')
-    st = ast.parse(src)
-    visitor = UnknownSymbolVisitor()
-    assert visitor._paths_from_node(st.body[0].value) == set(['sys.path'])
+    unresolved, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert unresolved == set(['sys.path'])
 
 
 def test_symbol_series():
@@ -151,13 +147,10 @@ def test_find_unresolved_and_unreferenced_symbols():
     assert unreferenced == set(['A', 'urllib2', 'f'])
 
 
-class TestSymbolCollector(object):
+class TestSymbolCollection(object):
     def _collect(self, src):
-        st = ast.parse(src, '', 'exec').body[0].value
-        symbols = set()
-        collector = SymbolCollector(symbols)
-        collector.visit(st)
-        collector.flush()
+        scope = Scope.from_source(src)
+        symbols, _ = scope.find_unresolved_and_unreferenced_symbols()
         return symbols
 
     def test_attribute(self):
@@ -170,10 +163,20 @@ class TestSymbolCollector(object):
         assert self._collect('foo(bar).waz(baz)') == set(['foo', 'bar', 'baz'])
 
     def test_chained_subscript(self):
-        assert self._collect('foo[bar].waz(baz)') == set(['foo', 'bar', 'baz'])
+        assert self._collect('foo[bar].waz(baz).asdf()') == set(['foo', 'bar', 'baz'])
 
     def test_attribute_then_call(self):
         assert self._collect('foo.bar(waz)') == set(['foo.bar', 'waz'])
 
     def test_deep_attributes(self):
         assert self._collect('foo.bar.waz') == set(['foo.bar.waz'])
+
+    def test_generator(self):
+        assert self._collect('(i for b in c)') == set(['i', 'c'])
+
+    def test_comprehension(self):
+        assert self._collect('[i for b in c]') == set(['i', 'c'])
+
+    def test_class_attribute(self):
+        assert self._collect('class A:\n  a = b') == set(['b'])
+

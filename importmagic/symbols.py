@@ -27,6 +27,46 @@ class Scope(object):
         self._is_class = is_class
         if define_builtins:
             self._define_builtin_symbols()
+        self._add_symbol = []
+        self._symbol = []
+
+    @contextmanager
+    def start_symbol(self):
+        self._add_symbol.append(self._add_symbol[-1] if self._add_symbol else self.reference)
+        try:
+            yield self
+        finally:
+            self.flush_symbol()
+
+    @contextmanager
+    def start_definition(self):
+        self._add_symbol.append(self.define)
+        try:
+            yield self
+        finally:
+            self.flush_symbol()
+
+    @contextmanager
+    def start_reference(self):
+        self._add_symbol.append(self.reference)
+        try:
+            yield self
+        finally:
+            self.flush_symbol()
+
+    def extend_symbol(self, segment):
+        self._symbol.append(segment)
+
+    def end_symbol(self):
+        if self._symbol:
+            add = self._add_symbol[-1] if self._add_symbol else self.reference
+            add('.'.join(self._symbol))
+            self._symbol = []
+
+    def flush_symbol(self):
+        self.end_symbol()
+        if self._add_symbol:
+            self._add_symbol.pop()
 
     @classmethod
     def from_source(cls, src, trace=False, define_builtins=True):
@@ -35,6 +75,7 @@ class Scope(object):
         if isinstance(src, basestring):
             src = ast.parse(src)
         visitor.visit(src)
+        scope.flush_symbol()
         return scope
 
     def _define_builtin_symbols(self):
@@ -55,6 +96,7 @@ class Scope(object):
         try:
             yield child
         finally:
+            self.end_symbol()
             self._cursors.pop()
             self._cursor = self._cursors[-1]
 
@@ -129,72 +171,66 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
 
     def visit_Lambda(self, node):
         with self._scope.enter():
-            args = node.args
-            if args.kwarg:
-                self._scope.define(args.kwarg)
-            if args.vararg:
-                self._scope.define(args.vararg)
-            for arg in args.args:
-                self._scope.define(arg.id)
-            for decorator in getattr(node, 'decorator_list', []):
-                self.generic_visit(decorator)
-            self.generic_visit(node)
+            with self._scope.start_definition():
+                args = node.args
+                if args.kwarg:
+                    self._scope.define(args.kwarg)
+                if args.vararg:
+                    self._scope.define(args.vararg)
+                for arg in args.args:
+                    self._scope.define(arg.id)
+                with self._scope.start_reference():
+                    for decorator in getattr(node, 'decorator_list', []):
+                        self.visit(decorator)
+            body = [node.body] if isinstance(node, ast.Lambda) else node.body
+            for statement in body:
+                self.visit(statement)
+
+    def visit_ListComp(self, node):
+        return self.visit_GeneratorExp(node)
+
+    def visit_Print(self, node):
+        for value in node.values:
+            with self._scope.start_reference():
+                self.visit(value)
+        if node.dest:
+            with self._scope.start_reference():
+                self.visit(node.dest)
+
+    def visit_GeneratorExp(self, node):
+        with self._scope.start_reference():
+            self.visit(node.elt)
+        for elt in node.generators:
+            self.visit(elt)
 
     def visit_comprehension(self, node):
-        self._define(node.target)
-        self.generic_visit(node)
+        with self._scope.start_definition():
+            self.visit(node.target)
+        with self._scope.start_reference():
+            self.visit(node.iter)
+        for elt in node.ifs:
+            with self._scope.start_reference():
+                self.visit(elt)
 
     def _define(self, target):
-        for symbol in self._paths_from_node(target):
-            self._scope.define(symbol)
+        with self._scope.start_definition():
+            self.visit(target)
 
     def _reference(self, target):
-        for symbol in self._paths_from_node(target):
-            self._scope.reference(symbol)
-
-    def _assign(self, target):
-        for symbol in self._paths_from_node(target):
-            if '.' in symbol:
-                self._scope.reference(symbol)
-            else:
-                self._scope.define(symbol)
-
-    def _paths_from_node(self, target):
-        """Extract a fully qualified symbol from a node.
-
-        eg. Given the source "os.path.basename(path)" we would extract ['os', 'path', 'basename']
-        """
-        paths = set()
-
-        _collect(paths, target)
-        return paths
+        with self._scope.start_reference():
+            self.visit(target)
 
     def visit_Assign(self, node):
         for target in node.targets:
-            self._assign(target)
-        self.generic_visit(node)
+            with self._scope.start_definition():
+                self.visit(target)
+        with self._scope.start_reference():
+            self.visit(node.value)
 
     def visit_ClassDef(self, node):
         self._scope.define(node.name)
         with self._scope.enter(is_class=True):
             self.generic_visit(node)
-
-    def visit_Call(self, node):
-        self._reference(node)
-        for arg in node.args + node.keywords + filter(None, [node.starargs, node.kwargs]):
-            print 'arg', ast.dump(arg)
-            self.visit(arg)
-
-    def visit_Attribute(self, node):
-        self._reference(node)
-
-    def visit_Subscript(self, node):
-        self._reference(node)
-        self.visit(node.slice)
-        self.visit(node.value)
-
-    def visit_Name(self, node):
-        self._reference(node)
 
     def visit_ImportFrom(self, node):
         for name in node.names:
@@ -225,61 +261,42 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_For(self, node):
-        for symbol in self._paths_from_node(node.target):
-            self._scope.define(symbol)
+        with self._scope.start_definition():
+            self.visit(node.target)
         self.generic_visit(node)
-
-
-class SymbolCollector(ast.NodeVisitor):
-    def __init__(self, symbols):
-        self._symbols = symbols
-        self._symbol = []
-
-    def _collect(self, node):
-        collector = SymbolCollector(self._symbols)
-        collector.visit(node)
-        collector.flush()
-
-    def flush(self):
-        if self._symbol:
-            self._symbols.add('.'.join(self._symbol))
-            self._symbol = []
 
     def visit_Tuple(self, node):
         for elt in node.elts:
-            self._collect(elt)
+            with self._scope.start_symbol():
+                self.visit(elt)
 
     def visit_Attribute(self, node):
         if isinstance(node.value, ast.Name):
-            self._symbol.append(node.value.id)
-            self._symbol.append(node.attr)
+            self._scope.extend_symbol(node.value.id)
+            self._scope.extend_symbol(node.attr)
         elif isinstance(node.value, ast.Attribute):
             self.visit(node.value)
-            self._symbol.append(node.attr)
+            self._scope.extend_symbol(node.attr)
         else:
-            self.flush()
+            self._scope.end_symbol()
             self.visit(node.value)
-            self.flush()
+            self._scope.end_symbol()
 
     def visit_Subscript(self, node):
-        self.visit(node.value)
-        self.flush()
-        self._collect(node.slice)
+        self._scope.end_symbol()
+        with self._scope.start_reference():
+            self.visit(node.value)
+        self.visit(node.slice)
 
     def visit_Call(self, node):
-        self.visit(node.func)
-        self.flush()
+        with self._scope.start_reference():
+            self.visit(node.func)
         for arg in node.args + node.keywords + filter(None, [node.starargs, node.kwargs]):
-            self._collect(arg)
+            with self._scope.start_reference():
+                self.visit(arg)
 
     def visit_Name(self, node):
-        self._symbol.append(node.id)
-
-
-def _collect(paths, node):
-    collector = SymbolCollector(paths)
-    collector.visit(node)
-    collector.flush()
+        self._scope.extend_symbol(node.id)
 
 
 if __name__ == '__main__':
