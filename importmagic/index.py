@@ -3,7 +3,7 @@
 import ast
 import json
 import logging
-import os
+import os.path
 import re
 import sys
 from contextlib import contextmanager

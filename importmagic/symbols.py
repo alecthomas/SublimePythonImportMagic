@@ -96,7 +96,7 @@ class Scope(object):
         try:
             yield child
         finally:
-            self.end_symbol()
+            child.end_symbol()
             self._cursors.pop()
             self._cursor = self._cursors[-1]
 
@@ -153,6 +153,12 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         self._trace = trace
 
     def visit(self, node):
+        if node is None:
+            return
+        elif isinstance(node, list):
+            for subnode in node:
+                self.visit(subnode)
+            return
         if self._trace:
             print node, vars(node)
         method = getattr(self, 'visit_%s' % node.__class__.__name__, None)
@@ -165,26 +171,70 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         else:
             self.generic_visit(node)
 
+    def visit_Raise(self, node):
+        with self._scope.start_reference():
+            self.visit(node.type)
+        with self._scope.start_reference():
+            self.visit(node.inst)
+        with self._scope.start_reference():
+            self.visit(node.tback)
+
+    def visit_TryExcept(self, node):
+        for sub in node.body:
+            with self._scope.start_reference():
+                self.visit(node.body)
+        self.visit(node.handlers)
+        for n in node.orelse:
+            with self._scope.start_reference():
+                self.visit(n)
+
+    def visit_ExceptHandler(self, node):
+        with self._scope.start_reference():
+            self.visit(node.type)
+        with self._scope.start_definition():
+            self.visit(node.name)
+        for n in node.body:
+            with self._scope.start_reference():
+                self.visit(n)
+
+    def visit_Return(self, node):
+        with self._scope.start_reference():
+            self.visit(node.value)
+
+    def visit_If(self, node):
+        with self._scope.start_reference():
+            self.visit(node.test)
+        for child in node.body:
+            with self._scope.start_reference():
+                self.visit(child)
+        for child in node.orelse:
+            with self._scope.start_reference():
+                self.visit(child)
+
+    def visit_While(self, node):
+        return self.visit_If(node)
+
     def visit_FunctionDef(self, node):
         self._scope.define(node.name)
         self.visit_Lambda(node)
 
     def visit_Lambda(self, node):
-        with self._scope.enter():
-            with self._scope.start_definition():
+        with self._scope.enter() as scope:
+            with scope.start_definition():
                 args = node.args
                 if args.kwarg:
-                    self._scope.define(args.kwarg)
+                    scope.define(args.kwarg)
                 if args.vararg:
-                    self._scope.define(args.vararg)
+                    scope.define(args.vararg)
                 for arg in args.args:
-                    self._scope.define(arg.id)
-                with self._scope.start_reference():
+                    scope.define(arg.id)
+                with scope.start_reference():
                     for decorator in getattr(node, 'decorator_list', []):
                         self.visit(decorator)
             body = [node.body] if isinstance(node, ast.Lambda) else node.body
-            for statement in body:
-                self.visit(statement)
+            with scope.start_reference():
+                for statement in body:
+                    self.visit(statement)
 
     def visit_ListComp(self, node):
         return self.visit_GeneratorExp(node)
@@ -212,14 +262,6 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
             with self._scope.start_reference():
                 self.visit(elt)
 
-    def _define(self, target):
-        with self._scope.start_definition():
-            self.visit(target)
-
-    def _reference(self, target):
-        with self._scope.start_reference():
-            self.visit(target)
-
     def visit_Assign(self, node):
         for target in node.targets:
             with self._scope.start_definition():
@@ -228,9 +270,17 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
             self.visit(node.value)
 
     def visit_ClassDef(self, node):
+        with self._scope.start_reference():
+            for decorator in getattr(node, 'decorator_list', []):
+                self.visit(decorator)
         self._scope.define(node.name)
+        for base in node.bases:
+            with self._scope.start_reference():
+                self.visit(base)
         with self._scope.enter(is_class=True):
-            self.generic_visit(node)
+            for body in node.body:
+                with self._scope.start_reference():
+                    self.visit(body)
 
     def visit_ImportFrom(self, node):
         for name in node.names:
@@ -252,18 +302,22 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
 
     def visit_With(self, node):
         if node.optional_vars:
-            self._scope.define(node.optional_vars.id)
-        self.generic_visit(node)
-
-    def visit_ExceptHandler(self, node):
-        if node.name:
-            self._scope.define(node.name.id)
-        self.generic_visit(node)
+            with self._scope.start_definition():
+                self.visit(node.optional_vars)
+        with self._scope.start_reference():
+            self.visit(node.context_expr)
+        with self._scope.start_reference():
+            self.visit(node.body)
 
     def visit_For(self, node):
         with self._scope.start_definition():
             self.visit(node.target)
-        self.generic_visit(node)
+        with self._scope.start_reference():
+            self.visit(node.iter)
+        with self._scope.start_reference():
+            self.visit(node.body)
+        with self._scope.start_reference():
+            self.visit(node.orelse)
 
     def visit_Tuple(self, node):
         for elt in node.elts:

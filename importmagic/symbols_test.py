@@ -148,10 +148,12 @@ def test_find_unresolved_and_unreferenced_symbols():
 
 
 class TestSymbolCollection(object):
-    def _collect(self, src):
+    def _collect(self, src, include_unreferenced=False):
         scope = Scope.from_source(src)
-        symbols, _ = scope.find_unresolved_and_unreferenced_symbols()
-        return symbols
+        unresolved, unreferenced = scope.find_unresolved_and_unreferenced_symbols()
+        if include_unreferenced:
+            return unresolved, unreferenced
+        return unresolved
 
     def test_attribute(self):
         assert self._collect('foo.bar') == set(['foo.bar'])
@@ -180,3 +182,11 @@ class TestSymbolCollection(object):
     def test_class_attribute(self):
         assert self._collect('class A:\n  a = b') == set(['b'])
 
+    def test_with(self):
+        assert self._collect('with a: pass') == set(['a'])
+
+    def test_with_variables(self):
+        assert self._collect('def a():\n  with a as b: pass', include_unreferenced=True) == (set(), set())
+
+    def test_assignment_in_for(self):
+        assert self._collect('def a():\n  for i in [1, 2]: b = 10', include_unreferenced=True) == (set(), set(['a']))
