@@ -2,7 +2,7 @@
 
 This plugin attempts to automatically manage Python imports.
 
-***WARNING:** This is a relatively complex plugin and thus may contain bugs. It may remove imports that you need. It may add imports that you don't. Use at your own risk.*
+**WARNING: This is a relatively complex plugin and thus may contain bugs. It may remove imports that you need. It may add imports that you don't. Use at your own risk.**
 
 It can:
 
@@ -10,7 +10,7 @@ It can:
 - Remove unused imports.
 - Order imports according to PEP8.
 
-It currently can**NOT** (but support is planned):
+It currently can **NOT** (but support is planned):
 
 - Detect changes to files and update its index automatically. The current workaround is to use the command palette `Python Import Magic: Reset Index`.
 
