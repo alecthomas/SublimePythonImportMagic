@@ -18,7 +18,13 @@ LIB_LOCATIONS = sorted(set((
 )), key=lambda l: -len(l[0]))
 
 
+# Regex matching modules that we never attempt to index.
 BLACKLIST_RE = re.compile(r'\btest[s]?|test[s]?\b', re.I)
+# Modules to treat as built-in.
+#
+# "os" is here mostly because it imports a whole bunch of aliases from other
+# modules. The simplest way of dealing with that is just to import it and use
+# vars() on it.
 BUILTIN_MODULES = sys.builtin_module_names + ('os',)
 
 
@@ -41,8 +47,10 @@ class JSONEncoder(json.JSONEncoder):
 
 class SymbolIndex(object):
     PACKAGE_ALIASES = {
-        # Give os.path a score boost over posixpath and ntpath.
-        'os.path': (os.path.__name__, 1.2),
+        # Give 'os.path' a score boost over posixpath and ntpath.
+        # 'os.path': (os.path.__name__, 1.2),
+        # Same with 'os', due to the heavy aliasing of other packages.
+        'os': ('os', 1.2),
     }
     LOCATIONS = {
         'F': 'Future',
@@ -116,10 +124,13 @@ class SymbolIndex(object):
             if basename == '__init__':
                 basename = None
             ext = ext.lower()
+            import_path = '.'.join(filter(None, [self.path(), basename]))
+            if import_path in BUILTIN_MODULES:
+                return
             if ext == '.py':
                 self.index_file(basename, root)
             elif ext in ('.dll', '.so'):
-                self.index_builtin('.'.join(filter(None, [self.path(), basename])), location=location)
+                self.index_builtin(import_path, location=location)
         elif os.path.isdir(root) and os.path.exists(os.path.join(root, '__init__.py')):
             basename = os.path.basename(root)
             with self.enter(basename, location=location) as subtree:

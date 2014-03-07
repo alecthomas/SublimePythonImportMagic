@@ -61,6 +61,7 @@ class Import(object):
         return self.location < other.location or self.name < other.name or self.alias < other.alias
 
 
+# See SymbolIndex.LOCATIONS for details.
 LOCATION_ORDER = 'FS3L'
 
 
@@ -175,7 +176,7 @@ class Imports(object):
             # Explicitly tell importmagic to manage a particular block of imports.
             if token[1] == '# importmagic: manage':
                 explicit = True
-            elif token[0] in (3, 4, 53, 54):
+            elif token[0] in (tokenize.STRING, tokenize.NEWLINE, tokenize.NL):
                 continue
 
             if not ranges:

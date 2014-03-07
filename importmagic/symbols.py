@@ -297,7 +297,7 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
 
     def visit_Import(self, node):
         for name in node.names:
-            self._scope.define(name.asname or name.name.split('.')[0])
+            self._scope.define(name.asname or name.name)
         self.generic_visit(node)
 
     def visit_With(self, node):

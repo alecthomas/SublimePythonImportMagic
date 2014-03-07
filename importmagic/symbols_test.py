@@ -86,10 +86,10 @@ def test_parser_class_methods_namespace_correctly():
 
 def test_path_from_node_function():
     src = dedent('''
-        os.path.basename('foo/bar').tolower()
+        os.path.basename(waz).tolower()
         ''')
     unresolved, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
-    assert unresolved == set(['os.path.basename'])
+    assert unresolved == set(['waz', 'os.path.basename'])
 
 
 def test_path_from_node_subscript():
@@ -190,3 +190,12 @@ class TestSymbolCollection(object):
 
     def test_assignment_in_for(self):
         assert self._collect('def a():\n  for i in [1, 2]: b = 10', include_unreferenced=True) == (set(), set(['a']))
+
+    def test_assignment_to_subscript(self):
+        assert self._collect('a[10] = 10', include_unreferenced=True) == (set(['a']), set())
+
+    def test_attribute_calls(self):
+        assert self._collect('a().b().c()') == set(['a'])
+
+    def test_attribute_calls_with_args(self):
+        assert self._collect('a(d).b(e).c(f.g)') == set(['a', 'd', 'e', 'f.g'])
