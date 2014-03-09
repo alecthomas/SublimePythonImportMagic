@@ -1,0 +1,10 @@
+[
+  {
+    "caption": "Python Import Magic: Update Imports",
+    "command": "update_python_imports"
+  },
+  {
+    "caption": "Python Import Magic: Rebuild Index",
+    "command": "rebuild_python_import_index"
+  }
+]
