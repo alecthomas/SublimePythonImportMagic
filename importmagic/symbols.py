@@ -238,7 +238,7 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
                 if args.vararg:
                     scope.define(args.vararg)
                 for arg in args.args:
-                    scope.define(arg.id)
+                    scope.define(arg.id if hasattr(arg, 'id') else arg.arg)
             body = [node.body] if isinstance(node, ast.Lambda) else node.body
             with scope.start_reference():
                 for statement in body:
@@ -309,13 +309,20 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_With(self, node):
+        if hasattr(node, 'items'):
+            for item in node.items:
+                self._visit_withitem(item)
+        else:
+            self._visit_withitem(node)
+        with self._scope.start_reference():
+            self.visit(node.body)
+
+    def _visit_withitem(self, node):
         if node.optional_vars:
             with self._scope.start_definition():
                 self.visit(node.optional_vars)
         with self._scope.start_reference():
             self.visit(node.context_expr)
-        with self._scope.start_reference():
-            self.visit(node.body)
 
     def visit_For(self, node):
         with self._scope.start_definition():

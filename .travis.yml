@@ -3,6 +3,9 @@ python:
   - "2.6"
   - "2.7"
   - "pypy"
+  - "3.2"
+  - "3.3"
+  - "3.4"
 install:
   - pip install pytest --use-mirrors
 script: PYTHONPATH=$PWD py.test -vv

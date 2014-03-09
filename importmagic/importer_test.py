@@ -8,7 +8,7 @@ from importmagic.symbols import Scope
 
 def test_deep_import_of_unknown_symbol(index):
     src = dedent("""
-        print os.unknown('/')
+        print(os.unknown('/'))
          """).strip()
     unresolved, unreferenced = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     assert unresolved == set(['os.unknown'])
@@ -17,7 +17,7 @@ def test_deep_import_of_unknown_symbol(index):
         import os
 
 
-        print os.unknown('/')
+        print(os.unknown('/'))
         """).strip() == new_src
 
 
@@ -32,10 +32,10 @@ def test_import_future_preserved(index):
 
 def test_update_imports_inserts_initial_imports(index):
     src = dedent("""
-        print os.path.basename('sys/foo')
-        print sys.path[0]
-        print basename('sys/foo')
-        print path.basename('sys/foo')
+        print(os.path.basename('sys/foo'))
+        print(sys.path[0])
+        print(basename('sys/foo'))
+        print(path.basename('sys/foo'))
         """).strip()
     unresolved, unreferenced = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     assert unresolved == set(['os.path.basename', 'sys.path', 'basename', 'path.basename'])
@@ -47,10 +47,10 @@ def test_update_imports_inserts_initial_imports(index):
         from os.path import basename
 
 
-        print os.path.basename('sys/foo')
-        print sys.path[0]
-        print basename('sys/foo')
-        print path.basename('sys/foo')
+        print(os.path.basename('sys/foo'))
+        print(sys.path[0])
+        print(basename('sys/foo'))
+        print(path.basename('sys/foo'))
         """).strip() == new_src
 
 
@@ -58,8 +58,8 @@ def test_update_imports_inserts_imports(index):
     src = dedent("""
         import sys
 
-        print os.path.basename("sys/foo")
-        print sys.path[0]
+        print(os.path.basename("sys/foo"))
+        print(sys.path[0])
         """).strip()
     unresolved, unreferenced = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     assert unresolved == set(['os.path.basename'])
@@ -69,14 +69,14 @@ def test_update_imports_inserts_imports(index):
         import sys
 
 
-        print os.path.basename("sys/foo")
-        print sys.path[0]
+        print(os.path.basename("sys/foo"))
+        print(sys.path[0])
         """).strip() == new_src
 
 
 def test_update_imports_correctly_aliases(index):
     src = dedent('''
-        print basename('src/foo')
+        print(basename('src/foo'))
         ''').strip()
     unresolved, unreferenced = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     assert unresolved == set(['basename'])
@@ -85,7 +85,7 @@ def test_update_imports_correctly_aliases(index):
         from os.path import basename
 
 
-        print basename('src/foo')
+        print(basename('src/foo'))
         ''').strip() == new_src
 
 
@@ -118,7 +118,7 @@ def test_imports_inserted_after_preamble(index):
         """Docstring"""
 
         def func(n):
-            print basename(n)
+            print(basename(n))
         ''').strip()
     unresolved, unreferenced = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     new_src = update_imports(src, index, unresolved, unreferenced)
@@ -131,7 +131,7 @@ def test_imports_inserted_after_preamble(index):
 
 
         def func(n):
-            print basename(n)
+            print(basename(n))
         ''').strip() == new_src
 
 
@@ -141,7 +141,7 @@ def test_imports_dont_delete_trailing_comments(index):
 
         # Some function
         def func(n):
-            print basename(n)
+            print(basename(n))
         ''').strip()
     scope = Scope.from_source(src)
     new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols())
@@ -151,7 +151,7 @@ def test_imports_dont_delete_trailing_comments(index):
 
         # Some function
         def func(n):
-            print basename(n)
+            print(basename(n))
         ''').strip() == new_src
 
 
@@ -160,7 +160,7 @@ def test_imports_removes_unused(index):
         import sys
 
         def func(n):
-            print basename(n)
+            print(basename(n))
         ''').strip()
     scope = Scope.from_source(src)
     new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols())
@@ -169,7 +169,7 @@ def test_imports_removes_unused(index):
 
 
         def func(n):
-            print basename(n)
+            print(basename(n))
         ''').strip() == new_src
 
 
@@ -212,7 +212,7 @@ def test_importer_directives(index):
         import re
         import sys
 
-        print os.path.basename('moo')
+        print(os.path.basename('moo'))
         ''').strip()
     expected_src = dedent('''
         from gevent.monkey import patch_all
@@ -222,7 +222,7 @@ def test_importer_directives(index):
         import os.path
 
 
-        print os.path.basename('moo')
+        print(os.path.basename('moo'))
         ''').strip()
     scope = Scope.from_source(src)
     new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols()).strip()

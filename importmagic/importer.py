@@ -36,6 +36,7 @@ class Iterator(object):
 
     def __nonzero__(self):
         return self._cursor < self._end
+    __bool__ = __nonzero__
 
 
 class Import(object):
@@ -58,7 +59,9 @@ class Import(object):
         return self.location != other.location or self.name != other.name or self.alias != other.alias
 
     def __lt__(self, other):
-        return self.location < other.location or self.name < other.name or self.alias < other.alias
+        return self.location < other.location \
+            or self.name < other.name \
+            or (self.alias is not None and other.alias is not None and self.alias < other.alias)
 
 
 # See SymbolIndex.LOCATIONS for details.
@@ -86,7 +89,7 @@ class Imports(object):
         for imp in list(self._imports):
             if imp.name in references:
                 self._imports.remove(imp)
-        for name, imports in self._imports_from.iteritems():
+        for name, imports in self._imports_from.items():
             for imp in list(imports):
                 if imp.name in references:
                     imports.remove(imp)
@@ -103,7 +106,7 @@ class Imports(object):
                     alias='as {alias}'.format(alias=imp.alias) if imp.alias else '',
                 ))
 
-            for module, imports in sorted(self._imports_from.iteritems()):
+            for module, imports in sorted(self._imports_from.items()):
                 imports = sorted(imports)
                 if not imports or expected_location != imports[0].location:
                     continue
