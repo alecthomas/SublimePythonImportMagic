@@ -27,6 +27,11 @@ BLACKLIST_RE = re.compile(r'\btest[s]?|test[s]?\b', re.I)
 # vars() on it.
 BUILTIN_MODULES = sys.builtin_module_names + ('os',)
 
+LOCATION_BOOSTS = {
+    '3': 1.2,
+    'L': 1.5,
+}
+
 
 # TODO: Update scores based on import reference frequency.
 # eg. if "sys.path" is referenced more than os.path, prefer it.
@@ -269,6 +274,9 @@ class SymbolIndex(object):
     def serialize(self):
         return json.dumps(self, cls=JSONEncoder)
 
+    def boost(self):
+        return LOCATION_BOOSTS.get(self.location, 1.0)
+
     def __repr__(self):
         return repr(self._tree)
 
@@ -290,10 +298,10 @@ class SymbolIndex(object):
         if value is None:
             return [], 0.0
         if type(value) is float:
-            return [None, key[0]], key_score
+            return [None, key[0]], key_score * scope.boost()
         else:
             path, score = self._score_key(value, key[1:])
-            return [key[0]] + path, score + value.score
+            return [key[0]] + path, (score + value.score) * scope.boost()
 
     def _determine_location_for(self, path):
         for dir, location in LIB_LOCATIONS:
