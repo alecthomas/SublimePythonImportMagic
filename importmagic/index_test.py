@@ -1,8 +1,13 @@
 from __future__ import absolute_import
 
+import json
 from textwrap import dedent
 
 from importmagic.index import SymbolIndex
+
+
+def serialize(tree):
+    return json.loads(tree.serialize())
 
 
 def test_index_file_with_all():
@@ -16,7 +21,7 @@ def test_index_file_with_all():
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
         subtree.index_source('test.py', src)
-    assert subtree.serialize() == '{".location": "L", ".score": 1.0, "one": 1.1}'
+    assert serialize(subtree) == {".location": "L", ".score": 1.0, "one": 1.1}
 
 
 def test_index_if_name_main():
@@ -29,7 +34,7 @@ def test_index_if_name_main():
     tree = SymbolIndex()
     with tree.enter('test') as subtree:
         subtree.index_source('test.py', src)
-    assert subtree.serialize() == '{".location": "L", ".score": 1.0}'
+    assert serialize(subtree) == {".location": "L", ".score": 1.0}
 
 
 def test_index_symbol_scores():
