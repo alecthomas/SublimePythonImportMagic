@@ -1,4 +1,4 @@
-# Sublime Text 2 - Python Import Magic
+# Sublime Text 2 - Python Import Magic [![image](https://secure.travis-ci.org/alecthomas/SublimePythonImportMagic.png?branch=master)](https://travis-ci.org/alecthomas/SublimePythonImportMagic)
 
 This plugin attempts to automatically manage Python imports.
 
