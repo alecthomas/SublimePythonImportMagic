@@ -1,7 +1,7 @@
 """Imports new symbols."""
 
 import tokenize
-from StringIO import StringIO
+from six import StringIO
 from collections import defaultdict
 
 
@@ -160,6 +160,7 @@ class Imports(object):
         explicit = False
         size = 0
         start = None
+
         while it:
             index, token = it.next()
 
@@ -176,12 +177,13 @@ class Imports(object):
             # Explicitly tell importmagic to manage a particular block of imports.
             if token[1] == '# importmagic: manage':
                 explicit = True
-            elif token[0] in (tokenize.STRING, tokenize.NEWLINE, tokenize.NL):
+            elif token[0] in (tokenize.STRING, tokenize.NEWLINE, tokenize.NL, tokenize.COMMENT):
                 continue
 
             if not ranges:
                 ranges.append((0, index, index))
 
+            # Accumulate imports
             if token[1] in ('import', 'from'):
                 if start is None:
                     start = index
@@ -191,6 +193,8 @@ class Imports(object):
                     if token[0] == tokenize.NEWLINE:
                         break
                     index, _ = it.next()
+
+            # Terminate this import range
             elif start is not None and token[1].strip():
                 ranges.append((size, start, index))
                 start = None
@@ -198,6 +202,7 @@ class Imports(object):
                 if explicit:
                     ranges = ranges[-1:]
                     break
+
         if start is not None:
             ranges.append((size, start, index))
         ranges.sort(reverse=True)

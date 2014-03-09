@@ -5,8 +5,6 @@ from textwrap import dedent
 from importmagic.index import SymbolIndex
 
 
-# Saving scans for unresolved symbols and imports the most likely module. Like
-# this...
 def test_index_file_with_all():
     src = dedent('''
         __all__ = ['one']
@@ -43,20 +41,20 @@ def test_index_symbol_scores():
         with os_tree.enter('path') as path_tree:
             path_tree.index_source('os.py', src)
     assert tree.symbol_scores('walk')[0][1:] == ('os.path', 'walk')
-    assert tree.symbol_scores('os') == [(1.0, 'os', None)]
-    assert tree.symbol_scores('os.path.walk') == [(3.3, 'os.path', 'walk')]
+    assert tree.symbol_scores('os') == [(1.2, 'os', None)]
+    assert tree.symbol_scores('os.path.walk') == [(3.5, 'os.path', 'walk')]
 
 
 def test_index_score_deep_unknown_attribute(index):
-    assert index.symbol_scores('os.path.basename.unknown')[0] == (3.2, 'os.path', 'basename')
+    assert index.symbol_scores('os.path.basename.unknown')[0][1:] == ('os.path', 'basename')
 
 
 def test_index_score_deep_reference(index):
-    assert index.symbol_scores('os.path.basename')[0] == (3.2, 'os.path', 'basename')
+    assert index.symbol_scores('os.path.basename')[0][1:] == ('os.path', 'basename')
 
 
 def test_index_score_missing_symbol(index):
-    assert index.symbol_scores('os.path.something')[0] == (2.2, 'os.path', None)
+    assert index.symbol_scores('os.path.something')[0][1:] == ('os.path', None)
 
 
 def test_index_score_sys_path(index):
@@ -64,9 +62,9 @@ def test_index_score_sys_path(index):
 
 
 def test_encoding_score(index):
-    assert index.symbol_scores('iso8859_6.Codec')[0] == (1.8, 'encodings.iso8859_6', 'Codec')
+    assert index.symbol_scores('iso8859_6.Codec')[0][1:] == ('encodings.iso8859_6', 'Codec')
 
 
 def test_score_boosts_apply_to_scopes(index):
-    print index.symbol_scores('basename')
+    print(index.symbol_scores('basename'))
     assert index.symbol_scores('basename')[0][1:] == ('os.path', 'basename')

@@ -1,6 +1,5 @@
 import os
 import os.path
-import time
 import sys
 from threading import RLock, Thread
 
@@ -33,19 +32,20 @@ class Indexer(object):
         self._indexes = {}
         self._threads = {}
 
-    def reset(self, path):
-        log('Resetting index for {0}', path)
+    def rebuild(self, root):
+        log('Rebuilding index for {0}', root)
         with self._lock:
-            index_file = os.path.join(path, index_filename())
+            index_file = os.path.join(root, index_filename())
             try:
                 os.unlink(index_file)
             except OSError:
                 pass
             try:
-                del self._indexes[path]
+                del self._indexes[root]
             except KeyError:
                 pass
-            log('Reset index for {0}', path, status=True)
+            log('Rebuilt index for {0}', root, status=True)
+        return self.index(root)
 
     def index(self, root):
         with self._lock:
@@ -107,9 +107,9 @@ class UpdatePythonImports(sublime_plugin.TextCommand):
         update_imports_for_view(self.view, index)
 
 
-class ResetPythonImportIndex(sublime_plugin.TextCommand):
+class RebuildPythonImportIndex(sublime_plugin.TextCommand):
     def run(self, edit):
-        indexer.reset(get_project_root(self.view))
+        indexer.rebuild(get_project_root(self.view))
 
 
 indexer = Indexer()

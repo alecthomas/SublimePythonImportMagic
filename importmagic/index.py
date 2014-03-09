@@ -3,7 +3,7 @@
 import ast
 import json
 import logging
-import os.path
+import os
 import re
 import sys
 from contextlib import contextmanager
@@ -48,7 +48,7 @@ class JSONEncoder(json.JSONEncoder):
 class SymbolIndex(object):
     PACKAGE_ALIASES = {
         # Give 'os.path' a score boost over posixpath and ntpath.
-        # 'os.path': (os.path.__name__, 1.2),
+        'os.path': (os.path.__name__, 1.2),
         # Same with 'os', due to the heavy aliasing of other packages.
         'os': ('os', 1.2),
     }
@@ -61,7 +61,7 @@ class SymbolIndex(object):
     _PACKAGE_ALIASES = dict((v[0], (k, v[1])) for k, v in PACKAGE_ALIASES.items())
     _SERIALIZED_ATTRIBUTES = {'score': 1.0, 'location': '3'}
 
-    def __init__(self, name=None, parent=None, score=1.0, location='3', path=None):
+    def __init__(self, name=None, parent=None, score=1.0, location='3'):
         self._name = name
         self._tree = {}
         self._exports = {}
@@ -99,7 +99,7 @@ class SymbolIndex(object):
         try:
             st = ast.parse(source, filename)
         except Exception as e:
-            print 'Failed to parse %s: %s' % (filename, e)
+            print('Failed to parse %s: %s' % (filename, e))
             return
         visitor = SymbolVisitor(self)
         visitor.visit(st)
@@ -120,22 +120,28 @@ class SymbolIndex(object):
             return
         location = self._determine_location_for(root)
         if os.path.isfile(root):
-            basename, ext = os.path.splitext(os.path.basename(root))
-            if basename == '__init__':
-                basename = None
-            ext = ext.lower()
-            import_path = '.'.join(filter(None, [self.path(), basename]))
-            if import_path in BUILTIN_MODULES:
-                return
-            if ext == '.py':
-                self.index_file(basename, root)
-            elif ext in ('.dll', '.so'):
-                self.index_builtin(import_path, location=location)
+            self._index_module(root, location)
         elif os.path.isdir(root) and os.path.exists(os.path.join(root, '__init__.py')):
-            basename = os.path.basename(root)
-            with self.enter(basename, location=location) as subtree:
-                for filename in os.listdir(root):
-                    subtree.index_path(os.path.join(root, filename))
+            self._index_package(root, location)
+
+    def _index_package(self, root, location):
+        basename = os.path.basename(root)
+        with self.enter(basename, location=location) as subtree:
+            for filename in os.listdir(root):
+                subtree.index_path(os.path.join(root, filename))
+
+    def _index_module(self, root, location):
+        basename, ext = os.path.splitext(os.path.basename(root))
+        if basename == '__init__':
+            basename = None
+        ext = ext.lower()
+        import_path = '.'.join(filter(None, [self.path(), basename]))
+        if import_path in BUILTIN_MODULES:
+            return
+        if ext == '.py':
+            self.index_file(basename, root)
+        elif ext in ('.dll', '.so'):
+            self.index_builtin(import_path, location=location)
 
     def index_builtin(self, name, location):
         if name.startswith('_'):

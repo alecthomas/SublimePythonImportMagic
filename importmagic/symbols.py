@@ -1,10 +1,18 @@
 """Parse Python source and extract unresolved symbols."""
 
-
-import __builtin__
 import ast
 import sys
 from contextlib import contextmanager
+from itertools import chain
+
+from six import string_types
+
+
+try:
+    import builtins as __builtin__
+except:
+    import __builtin__
+
 
 
 class _InvalidSymbol(Exception):
@@ -72,7 +80,7 @@ class Scope(object):
     def from_source(cls, src, trace=False, define_builtins=True):
         scope = Scope(define_builtins=define_builtins)
         visitor = UnknownSymbolVisitor(scope, trace=trace)
-        if isinstance(src, basestring):
+        if isinstance(src, string_types):
             src = ast.parse(src)
         visitor.visit(src)
         scope.flush_symbol()
@@ -138,7 +146,7 @@ class Scope(object):
 
     def __repr__(self):
         return 'Scope(definitions=%r, references=%r, children=%r)' \
-            % (self._definitions, self._references, self._children)
+            % (self._definitions - Scope.ALL_BUILTINS, self._references, self._children)
 
 
 def _symbol_series(s):
@@ -160,13 +168,13 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
                 self.visit(subnode)
             return
         if self._trace:
-            print node, vars(node)
+            print(node, vars(node))
         method = getattr(self, 'visit_%s' % node.__class__.__name__, None)
         if method is not None:
             try:
                 method(node)
             except Exception:
-                print >> sys.stderr, node, vars(node)
+                # print >> sys.stderr, node, vars(node)
                 raise
         else:
             self.generic_visit(node)
@@ -219,6 +227,9 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         self.visit_Lambda(node)
 
     def visit_Lambda(self, node):
+        for decorator in getattr(node, 'decorator_list', []):
+            with self._scope.start_reference() as scope:
+                self.visit(decorator)
         with self._scope.enter() as scope:
             with scope.start_definition():
                 args = node.args
@@ -228,9 +239,6 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
                     scope.define(args.vararg)
                 for arg in args.args:
                     scope.define(arg.id)
-                with scope.start_reference():
-                    for decorator in getattr(node, 'decorator_list', []):
-                        self.visit(decorator)
             body = [node.body] if isinstance(node, ast.Lambda) else node.body
             with scope.start_reference():
                 for statement in body:
@@ -270,8 +278,8 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
             self.visit(node.value)
 
     def visit_ClassDef(self, node):
-        with self._scope.start_reference():
-            for decorator in getattr(node, 'decorator_list', []):
+        for decorator in getattr(node, 'decorator_list', []):
+            with self._scope.start_reference():
                 self.visit(decorator)
         self._scope.define(node.name)
         for base in node.bases:
@@ -345,7 +353,7 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
     def visit_Call(self, node):
         with self._scope.start_reference():
             self.visit(node.func)
-        for arg in node.args + node.keywords + filter(None, [node.starargs, node.kwargs]):
+        for arg in chain(node.args, node.keywords, filter(None, [node.starargs, node.kwargs])):
             with self._scope.start_reference():
                 self.visit(arg)
 

@@ -135,6 +135,26 @@ def test_imports_inserted_after_preamble(index):
         ''').strip() == new_src
 
 
+def test_imports_dont_delete_trailing_comments(index):
+    src = dedent('''
+        import sys
+
+        # Some function
+        def func(n):
+            print basename(n)
+        ''').strip()
+    scope = Scope.from_source(src)
+    new_src = update_imports(src, index, *scope.find_unresolved_and_unreferenced_symbols())
+    assert dedent('''
+        from os.path import basename
+
+
+        # Some function
+        def func(n):
+            print basename(n)
+        ''').strip() == new_src
+
+
 def test_imports_removes_unused(index):
     src = dedent('''
         import sys

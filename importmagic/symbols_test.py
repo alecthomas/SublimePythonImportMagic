@@ -1,3 +1,4 @@
+import pdb
 from textwrap import dedent
 
 from importmagic.symbols import Scope, _symbol_series
@@ -10,28 +11,28 @@ def test_parser_symbol_in_global_function():
 
         class Class(object):
             def foo(self):
-                print self.bar
+                print(self.bar)
 
         def basename_no_ext(filename, default=1):
             def inner():
-                print basename
+                print(basename)
 
             basename, _ = os.path.splitext(os.path.basename(filename))
             moo = 10
             inner()
 
             with open('foo') as fd:
-                print fd.read()
+                print(fd.read())
 
             try:
-                print 'foo'
+                print('foo')
             except Exception as e:
-                print e
+                print(e)
 
         basename_no_ext(sys.path)
 
         for path in sys.path:
-            print path
+            print(path)
 
         sys.path[0] = 10
 
@@ -51,7 +52,7 @@ def test_parser_symbol_in_global_function():
 
 def test_deep_package_reference_with_function_call():
     src = dedent('''
-        print os.path.dirname('src/python')
+        print(os.path.dirname('src/python'))
         ''')
     symbols, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     assert symbols == set(['os.path.dirname'])
@@ -59,7 +60,7 @@ def test_deep_package_reference_with_function_call():
 
 def test_deep_package_reference_with_subscript():
     src = dedent('''
-        print sys.path[0]
+        print(sys.path[0])
         ''')
     symbols, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     assert symbols == set(['sys.path'])
@@ -121,6 +122,17 @@ def test_symbol_from_decorator():
     assert symbols == set(['foo.bar', 'waz'])
 
 
+def test_referenced_symbols_from_decorated_function():
+    src = dedent("""
+        @foo.bar
+        def bar():
+            print(waz)
+            print(baz)
+        """)
+    symbols, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert symbols == set(['foo.bar', 'waz', 'baz'])
+
+
 def test_find_unresolved_and_unreferenced_symbols():
     src = dedent("""
         import os
@@ -131,14 +143,14 @@ def test_find_unresolved_and_unreferenced_symbols():
         def f(p):
             def b():
                 f = 10
-                print f
+                print(f)
             return basename(p)
 
         class A(object):
             etc = os.walk('/etc')
 
             def __init__(self):
-                print sys.path, urllib.urlquote('blah')
+                print(sys.path, urllib.urlquote('blah'))
 
         """).strip()
     scope = Scope.from_source(src)
