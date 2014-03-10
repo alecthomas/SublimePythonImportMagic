@@ -1,10 +1,13 @@
+import sys
+sys.path.insert(0, 'importmagic')
+
 import os
 import os.path
 import sys
 from threading import RLock, Thread
 
-import sublime_plugin
 import sublime
+import sublime_plugin
 
 from importmagic.importer import get_update
 from importmagic.index import SymbolIndex
