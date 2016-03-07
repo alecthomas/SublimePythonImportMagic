@@ -1,6 +1,6 @@
-import pdb
 from textwrap import dedent
 
+from importmagic.six import u
 from importmagic.symbols import Scope, _symbol_series
 
 
@@ -38,7 +38,7 @@ def test_parser_symbol_in_global_function():
 
         moo = lambda a: True
 
-        comp = [p for p in sys.path]
+        comp = [p for p in sys.path if p]
 
         sys.path[10] = 2
 
@@ -93,6 +93,14 @@ def test_path_from_node_function():
     assert unresolved == set(['waz', 'os.path.basename'])
 
 
+def test_symbol_from_assignment():
+    src = dedent('''
+        def f(n): sys.stderr = n
+        ''')
+    unresolved, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert unresolved == set(['sys.stderr'])
+
+
 def test_path_from_node_subscript():
     src = dedent('''
         sys.path[0].tolower()
@@ -105,12 +113,29 @@ def test_symbol_series():
     assert _symbol_series('os.path.basename') == ['os', 'os.path', 'os.path.basename']
 
 
+def test_symbol_in_expression():
+    src = dedent('''
+        (db.Event.creator_id == db.Account.id) & (db.Account.user_id == bindparam('user_id'))
+        ''')
+    unresolved, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert unresolved == set(['db.Event.creator_id', 'db.Account.id', 'db.Account.user_id', 'bindparam'])
+
+
 def test_symbol_from_nested_tuples():
     src = dedent("""
         a = (os, (os.path, sys))
         """)
     symbols, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
     assert symbols == set(['os', 'os.path', 'sys'])
+
+
+def test_symbol_from_argument_defaults():
+    src = dedent("""
+        def f(a, b=os.path, c=os): pass
+        """)
+
+    symbols, _ = Scope.from_source(src).find_unresolved_and_unreferenced_symbols()
+    assert symbols == set(['os.path', 'os'])
 
 
 def test_symbol_from_decorator():
@@ -152,11 +177,38 @@ def test_find_unresolved_and_unreferenced_symbols():
             def __init__(self):
                 print(sys.path, urllib.urlquote('blah'))
 
+            def exc_handler(self):
+                try:
+                    raise SomeException(some_value)
+                except:
+                    pass
+                else:
+                    print(SOME_MSG)
+
+            def cond(self, *args, **kwds):
+                if cond:
+                    pass
+                elif cond2:
+                    print('foo')
+                while cond3:
+                    print(kwds)
+
         """).strip()
     scope = Scope.from_source(src)
     unresolved, unreferenced = scope.find_unresolved_and_unreferenced_symbols()
-    assert unresolved == set(['urllib.urlquote'])
+    assert unresolved == set(['urllib.urlquote', 'SomeException', 'some_value',
+                              'SOME_MSG', 'cond', 'cond2', 'cond3'])
     assert unreferenced == set(['A', 'urllib2', 'f'])
+
+
+def test_accepts_unicode_strings():
+    src = dedent(u("""
+        # coding: utf-8
+        foo
+    """)).strip()
+    scope = Scope.from_source(src)
+    unresolved, unreferenced = scope.find_unresolved_and_unreferenced_symbols()
+    assert unresolved == set(['foo'])
 
 
 class TestSymbolCollection(object):
@@ -210,4 +262,13 @@ class TestSymbolCollection(object):
         assert self._collect('a().b().c()') == set(['a'])
 
     def test_attribute_calls_with_args(self):
-        assert self._collect('a(d).b(e).c(f.g)') == set(['a', 'd', 'e', 'f.g'])
+        assert self._collect('a(d).b.h(e).c(f.g)') == set(['a', 'd', 'e', 'f.g'])
+
+    def test_subscript_with_attrs(self):
+        assert self._collect('a[h].b.c.d[e.f.g]()') == set(['a', 'h', 'e.f.g'])
+
+    def test_multiple_names(self):
+        assert self._collect('a == b') == set(['a', 'b'])
+
+    def test_multiple_attributes(self):
+        assert self._collect('a.c == b.d') == set(['a.c', 'b.d'])

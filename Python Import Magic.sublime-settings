@@ -1,6 +1,0 @@
-{
-  // If true, update imports on each save. WARNING: This might not be a good idea.
-  "update_imports_on_save": false,
-  // Name of file to store index in.
-  "index_filename": ".importmagic.idx"
-}

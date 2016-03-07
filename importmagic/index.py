@@ -1,13 +1,16 @@
 """Build an index of top-level symbols from Python modules and packages."""
 
+import os
+import sys
+
 import ast
 import json
 import logging
-import os
 import re
-import sys
 from contextlib import contextmanager
 from distutils import sysconfig
+
+from importmagic.util import parse_ast
 
 
 LIB_LOCATIONS = sorted(set((
@@ -17,9 +20,8 @@ LIB_LOCATIONS = sorted(set((
     (sysconfig.get_python_lib(plat_specific=True, prefix=sys.prefix), '3'),
 )), key=lambda l: -len(l[0]))
 
-
 # Regex matching modules that we never attempt to index.
-BLACKLIST_RE = re.compile(r'\btest[s]?|test[s]?\b', re.I)
+DEFAULT_BLACKLIST_RE = re.compile(r'\btest[s]?|test[s]?\b', re.I)
 # Modules to treat as built-in.
 #
 # "os" is here mostly because it imports a whole bunch of aliases from other
@@ -46,6 +48,8 @@ class JSONEncoder(json.JSONEncoder):
             d = o._tree.copy()
             d.update(('.' + name, getattr(o, name))
                      for name in SymbolIndex._SERIALIZED_ATTRIBUTES)
+            if o._lib_locations is not None:
+                d['.lib_locations'] = o._lib_locations
             return d
         return super(JSONEncoder, self).default(o)
 
@@ -66,19 +70,36 @@ class SymbolIndex(object):
     _PACKAGE_ALIASES = dict((v[0], (k, v[1])) for k, v in PACKAGE_ALIASES.items())
     _SERIALIZED_ATTRIBUTES = {'score': 1.0, 'location': '3'}
 
-    def __init__(self, name=None, parent=None, score=1.0, location='3'):
+    def __init__(self, name=None, parent=None, score=1.0, location='L',
+                 blacklist_re=None, locations=None):
         self._name = name
         self._tree = {}
         self._exports = {}
         self._parent = parent
+        if blacklist_re:
+            self._blacklist_re = blacklist_re
+        elif parent:
+            self._blacklist_re = parent._blacklist_re
+        else:
+            self._blacklist_re = DEFAULT_BLACKLIST_RE
         self.score = score
         self.location = location
+        if parent is None:
+            self._lib_locations = locations or LIB_LOCATIONS
+        else:
+            self._lib_locations = None
         if parent is None:
             self._merge_aliases()
             with self.enter('__future__', location='F'):
                 pass
             with self.enter('__builtin__', location='S'):
                 pass
+
+    @property
+    def lib_locations(self):
+        if self._parent:
+            return self._parent.lib_locations
+        return self._lib_locations
 
     @classmethod
     def deserialize(self, file):
@@ -96,32 +117,38 @@ class SymbolIndex(object):
         data = json.load(file)
         data.pop('.location', None)
         data.pop('.score', None)
-        tree = SymbolIndex()
+        tree = SymbolIndex(locations=data.pop('.lib_locations', LIB_LOCATIONS))
         load(tree, data, 'L')
         return tree
 
     def index_source(self, filename, source):
         try:
-            st = ast.parse(source, filename)
+            st = parse_ast(source, filename)
         except Exception as e:
-            print('Failed to parse %s: %s' % (filename, e))
-            return
+            logger.debug('failed to parse %s: %s', filename, e)
+            return False
         visitor = SymbolVisitor(self)
         visitor.visit(st)
+        return True
 
     def index_file(self, module, filename):
-        if BLACKLIST_RE.search(filename):
+        if self._blacklist_re.search(filename):
             return
+        logger.debug('parsing Python module %s for indexing', filename)
+        with open(filename, 'rb') as fd:
+            source = fd.read()
         with self.enter(module, location=self._determine_location_for(filename)) as subtree:
-            with open(filename) as fd:
-                subtree.index_source(filename, fd.read())
+            success = subtree.index_source(filename, source)
+        if not success:
+            self._tree.pop(module, None)
 
     def index_path(self, root):
         """Index a path.
 
         :param root: Either a package directory, a .so or a .py module.
         """
-        if os.path.basename(root).startswith('_'):
+        basename = os.path.basename(root)
+        if os.path.splitext(basename)[0] != '__init__' and basename.startswith('_'):
             return
         location = self._determine_location_for(root)
         if os.path.isfile(root):
@@ -149,16 +176,18 @@ class SymbolIndex(object):
             self.index_builtin(import_path, location=location)
 
     def index_builtin(self, name, location):
-        if name.startswith('_'):
+        basename = name.rsplit('.', 1)[-1]
+        if basename.startswith('_'):
             return
+        logger.debug('importing builtin module %s for indexing', name)
         try:
             module = __import__(name, fromlist=['.'])
-        except ImportError:
+        except Exception:
             logger.debug('failed to index builtin module %s', name)
             return
 
-        with self.enter(name, location=location) as subtree:
-            for key, value in vars(module).iteritems():
+        with self.enter(basename, location=location) as subtree:
+            for key, value in vars(module).items():
                 if not key.startswith('_'):
                     subtree.add(key, 1.1)
 
@@ -166,6 +195,8 @@ class SymbolIndex(object):
         for builtin in BUILTIN_MODULES:
             self.index_builtin(builtin, location='S')
         for path in paths:
+            # for the implicit "" entry in sys.path
+            path = path or '.'
             if os.path.isdir(path):
                 for filename in os.listdir(path):
                     filename = os.path.join(path, filename)
@@ -190,13 +221,13 @@ class SymbolIndex(object):
             if variable is not None:
                 prefix.append(variable)
             seeking = symbol.split('.')
-            module = []
+            new_module = []
             while prefix and seeking[0] != prefix[0]:
-                module.append(prefix.pop(0))
-            module, variable = '.'.join(module), prefix[0]
-            # os -> '', 'os'
-            if not module:
-                module, variable = variable, None
+                new_module.append(prefix.pop(0))
+            if new_module:
+                module, variable = '.'.join(new_module), prefix[0]
+            else:
+                variable = None
             return module, variable
 
         def score_walk(scope, scale):
@@ -240,6 +271,7 @@ class SymbolIndex(object):
 
     def add_explicit_export(self, name, score):
         self._exports[name] = score
+        self.add(name, score)
 
     def find(self, path):
         """Return the node for a path, or None."""
@@ -269,7 +301,7 @@ class SymbolIndex(object):
 
     def add(self, name, score):
         current_score = self._tree.get(name, 0.0)
-        if score > current_score:
+        if isinstance(current_score, float) and score > current_score:
             self._tree[name] = score
 
     @contextmanager
@@ -299,7 +331,7 @@ class SymbolIndex(object):
         return LOCATION_BOOSTS.get(self.location, 1.0)
 
     def __repr__(self):
-        return repr(self._tree)
+        return '<%s:%r %r>' % (self.location, self.score, self._tree)
 
     def _merge_aliases(self):
         def create(node, alias, score):
@@ -309,7 +341,9 @@ class SymbolIndex(object):
             with node.enter(name, location='S', score=1.0 if alias else score) as index:
                 create(index, alias, score)
 
-        for alias, (package, score) in SymbolIndex._PACKAGE_ALIASES.items():
+        # Sort the aliases to always create 'os' before 'os.path'
+        for alias in sorted(SymbolIndex._PACKAGE_ALIASES):
+            package, score = SymbolIndex._PACKAGE_ALIASES[alias]
             create(self, package.split('.'), score)
 
     def _score_key(self, scope, key):
@@ -325,7 +359,7 @@ class SymbolIndex(object):
             return [key[0]] + path, (score + value.score) * scope.boost()
 
     def _determine_location_for(self, path):
-        for dir, location in LIB_LOCATIONS:
+        for dir, location in self.lib_locations:
             if path.startswith(dir):
                 return location
         return 'L'

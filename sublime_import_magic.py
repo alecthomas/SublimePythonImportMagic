@@ -1,23 +1,24 @@
-import sys
-sys.path.insert(0, 'importmagic')
-
 import os
-import os.path
 import sys
-from threading import RLock, Thread
 
+
+import_path = os.path.dirname(__file__)
+if import_path not in sys.path:
+    sys.path.insert(0, import_path)
+
+# importmagic: manage
 import sublime
 import sublime_plugin
+from distutils import sysconfig
+from threading import RLock, Thread
 
 from importmagic.importer import get_update
-from importmagic.index import SymbolIndex
+from importmagic.index import LIB_LOCATIONS, SymbolIndex
 from importmagic.symbols import Scope
 
 
-settings = sublime.load_settings('Python Import Magic.sublime-settings')
-
-
 def index_filename():
+    settings = sublime.load_settings('Python Import Magic.sublime-settings')
     return settings.get('index_filename', '.importmagic.idx')
 
 
@@ -26,10 +27,11 @@ def log(fmt, *args, **kwargs):
     text = 'ImportMagic: {0}'.format(text)
     if kwargs.get('status', False):
         sublime.status_message(text)
-    print text
+    print(text)
 
 
 class Indexer(object):
+
     def __init__(self):
         self._lock = RLock()
         self._indexes = {}
@@ -58,7 +60,8 @@ class Indexer(object):
                 log('WARNING: Still loading index from {0}', root, status=True)
                 return None
             index_file = os.path.join(root, index_filename())
-            thread = self._threads[root] = Thread(target=self._indexer, args=(root, index_file))
+            thread = self._threads[root] = Thread(
+                target=self._indexer, args=(root, index_file))
             self._threads[root].start()
             self._lock.release()
             thread.join(2.0)
@@ -69,17 +72,21 @@ class Indexer(object):
 
     def _indexer(self, root, index_file):
         # Delay indexing briefly so we don't hammer the system.
+        print(os.environ)
+        settings = sublime.load_settings('Python Import Magic.sublime-settings')
+        locations = settings.get('python_path', LIB_LOCATIONS)
+        print(locations)
+
         sublime.status_message('Loading index {0}'.format(root))
         if os.path.exists(index_file):
             log('Loading index for {0}', root)
             with open(index_file) as fd:
                 index = SymbolIndex.deserialize(fd)
         else:
-            log('Indexing {0}', root)
-            index = SymbolIndex()
-            paths = sys.path[:]
-            if root not in paths:
-                paths.insert(0, root)
+            index = SymbolIndex(locations=locations)
+            paths = self._make_python_path(root, locations=locations)
+            log('Indexing {0} with paths {1}',
+                root, os.path.pathsep.join(paths))
             index.build_index(paths)
             with open(index_file, 'w') as fd:
                 fd.write(index.serialize())
@@ -88,31 +95,64 @@ class Indexer(object):
             del self._threads[root]
         log('Ready for {0}', root, status=True)
 
+    def _make_python_path(self, root, locations):
+        paths = [p[0] for p in locations]
+        if root not in paths:
+            paths.insert(0, root)
+        virtualenv = os.environ.get('VIRTUAL_ENV')
+        if virtualenv:
+            for path in (sysconfig.get_python_lib(standard_lib=True, prefix=virtualenv),
+                         sysconfig.get_python_lib(prefix=virtualenv)):
+                paths.insert(0, path)
+        return paths
+
 
 class PythonImportMagic(sublime_plugin.EventListener):
+
     def on_pre_save(self, view):
+        settings = sublime.load_settings(
+            'Python Import Magic.sublime-settings')
         if not settings.get('update_imports_on_save', False):
             return
 
-        index = index_for_view(view)
-        if not index:
-            return
-
-        update_imports_for_view(view, index)
+        view.run_command("update_python_imports")
 
 
 class UpdatePythonImports(sublime_plugin.TextCommand):
+
     def run(self, edit):
         index = index_for_view(self.view)
         if not index:
             return
 
-        update_imports_for_view(self.view, index)
+        update_imports_for_view(edit, self.view, index)
 
 
 class RebuildPythonImportIndex(sublime_plugin.TextCommand):
+
     def run(self, edit):
         indexer.rebuild(get_project_root(self.view))
+
+
+class ImportPythonSymbol(sublime_plugin.TextCommand):
+
+    def run(self, edit):
+        symbols = indexer.symbol_scores("")
+        # self.window.show_quick_panel(items, on_done, <flags>, <selected_index>, <on_highlighted>)
+        # self.window.show_input_panel("Select import", "", on_done, self._match_symbol, on_cancel)
+
+    def _match_symbol(self, symbol):
+        scores = self.symbol_index.symbol_scores(symbol)
+
+        def sort_key(item):
+            score, mod, var = item
+            if mod in self.favorites:
+                return 2 + score, mod, var
+            return score, mod, var
+
+        scores.sort(key=sort_key, reverse=True)
+        return ["from %s import %s" % (mod, var) if var else "import %s" % mod
+                for (_, mod, var) in scores]
 
 
 indexer = Indexer()
@@ -157,9 +197,9 @@ def active_file_name(view):
         return view.file_name()
 
 
-def update_imports_for_view(view, index):
+def update_imports_for_view(edit, view, index):
     # Extract symbols from source
-    src = view.substr(sublime.Region(0, view.size())).encode('utf-8')
+    src = view.substr(sublime.Region(0, view.size()))
     scope = Scope.from_source(src)
     unresolved, unreferenced = scope.find_unresolved_and_unreferenced_symbols()
 
@@ -172,8 +212,4 @@ def update_imports_for_view(view, index):
     region = sublime.Region(start, end)
 
     # Replace existing imports!
-    edit = view.begin_edit()
-    try:
-        view.replace(edit, region, text)
-    finally:
-        view.end_edit(edit)
+    view.replace(edit, region, text)

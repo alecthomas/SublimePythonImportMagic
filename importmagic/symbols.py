@@ -6,13 +6,13 @@ from contextlib import contextmanager
 from itertools import chain
 
 from importmagic.six import string_types
+from importmagic.util import parse_ast
 
 
 try:
     import builtins as __builtin__
 except:
     import __builtin__
-
 
 
 class _InvalidSymbol(Exception):
@@ -62,7 +62,9 @@ class Scope(object):
         finally:
             self.flush_symbol()
 
-    def extend_symbol(self, segment):
+    def extend_symbol(self, segment, extend_only=False):
+        if extend_only and not self._symbol:
+            return
         self._symbol.append(segment)
 
     def end_symbol(self):
@@ -81,7 +83,7 @@ class Scope(object):
         scope = Scope(define_builtins=define_builtins)
         visitor = UnknownSymbolVisitor(scope, trace=trace)
         if isinstance(src, string_types):
-            src = ast.parse(src)
+            src = parse_ast(src)
         visitor.visit(src)
         scope.flush_symbol()
         return scope
@@ -90,7 +92,10 @@ class Scope(object):
         self._cursor._definitions.update(Scope.ALL_BUILTINS)
 
     def define(self, name):
-        self._cursor._definitions.add(name)
+        if '.' in name:
+            self.reference(name)
+        else:
+            self._cursor._definitions.add(name)
 
     def reference(self, name):
         self._cursor._references.add(name)
@@ -178,19 +183,26 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
                 raise
         else:
             self.generic_visit(node)
+            self._scope.end_symbol()
 
     def visit_Raise(self, node):
-        with self._scope.start_reference():
-            self.visit(node.type)
-        with self._scope.start_reference():
-            self.visit(node.inst)
-        with self._scope.start_reference():
-            self.visit(node.tback)
+        if hasattr(node, 'type'):  # Python 2: raise A[, B[, C]]
+            with self._scope.start_reference():
+                self.visit(node.type)
+            with self._scope.start_reference():
+                self.visit(node.inst)
+            with self._scope.start_reference():
+                self.visit(node.tback)
+        else:                      # Python 3: raise A[ from B]
+            with self._scope.start_reference():
+                self.visit(node.exc)
+            with self._scope.start_reference():
+                self.visit(node.cause)
 
     def visit_TryExcept(self, node):
         for sub in node.body:
             with self._scope.start_reference():
-                self.visit(node.body)
+                self.visit(sub)
         self.visit(node.handlers)
         for n in node.orelse:
             with self._scope.start_reference():
@@ -200,7 +212,11 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         with self._scope.start_reference():
             self.visit(node.type)
         with self._scope.start_definition():
-            self.visit(node.name)
+            if isinstance(node.name, str):
+                # Python 3
+                self._scope.extend_symbol(node.name)
+            else:
+                self.visit(node.name)
         for n in node.body:
             with self._scope.start_reference():
                 self.visit(n)
@@ -233,12 +249,15 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         with self._scope.enter() as scope:
             with scope.start_definition():
                 args = node.args
-                if args.kwarg:
-                    scope.define(args.kwarg)
-                if args.vararg:
-                    scope.define(args.vararg)
-                for arg in args.args:
+                for arg in [args.kwarg, args.vararg]:
+                    if arg:
+                        # arg is either an "arg" object (Python 3.4+) or a str
+                        scope.define(arg.arg if hasattr(arg, 'arg') else arg)
+                # kwonlyargs was added in Python 3
+                for arg in args.args + getattr(args, 'kwonlyargs', []):
                     scope.define(arg.id if hasattr(arg, 'id') else arg.arg)
+                for default in args.defaults:
+                    self.visit(default)
             body = [node.body] if isinstance(node, ast.Lambda) else node.body
             with scope.start_reference():
                 for statement in body:
@@ -334,18 +353,15 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
         with self._scope.start_reference():
             self.visit(node.orelse)
 
-    def visit_Tuple(self, node):
-        for elt in node.elts:
-            with self._scope.start_symbol():
-                self.visit(elt)
-
-    def visit_Attribute(self, node):
+    def visit_Attribute(self, node, chain=False):
         if isinstance(node.value, ast.Name):
             self._scope.extend_symbol(node.value.id)
             self._scope.extend_symbol(node.attr)
+            if not chain:
+                self._scope.end_symbol()
         elif isinstance(node.value, ast.Attribute):
-            self.visit(node.value)
-            self._scope.extend_symbol(node.attr)
+            self.visit_Attribute(node.value, chain=True)
+            self._scope.extend_symbol(node.attr, extend_only=True)
         else:
             self._scope.end_symbol()
             self.visit(node.value)
@@ -360,12 +376,19 @@ class UnknownSymbolVisitor(ast.NodeVisitor):
     def visit_Call(self, node):
         with self._scope.start_reference():
             self.visit(node.func)
-        for arg in chain(node.args, node.keywords, filter(None, [node.starargs, node.kwargs])):
+        # Python 3.5 AST removed starargs and kwargs
+        additional = []
+        if getattr(node, 'starargs', None):
+            additional.append(node.starargs)
+        if getattr(node, 'kwargs', None):
+            additional.append(node.kwargs)
+        for arg in chain(node.args, node.keywords, additional):
             with self._scope.start_reference():
                 self.visit(arg)
 
     def visit_Name(self, node):
         self._scope.extend_symbol(node.id)
+        self._scope.end_symbol()
 
 
 if __name__ == '__main__':

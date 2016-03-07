@@ -57,7 +57,7 @@ class Import(object):
         return self.location == other.location and self.name == other.name and self.alias == other.alias
 
     def __ne__(self, other):
-        return self.location != other.location or self.name != other.name or self.alias != other.alias
+        return not (self == other)
 
     def __lt__(self, other):
         return self.location < other.location \
@@ -70,13 +70,22 @@ LOCATION_ORDER = 'FS3L'
 
 
 class Imports(object):
+
+    _style = {'multiline': 'parentheses',
+              'max_columns': 80,
+    }
+
     def __init__(self, index, source):
         self._imports = set()
         self._imports_from = defaultdict(set)
-        self._import_begin = self._imports_end = None
+        self._imports_begin = self._imports_end = None
         self._source = source
         self._index = index
         self._parse(source)
+
+    @classmethod
+    def set_style(cls, **kwargs):
+        cls._style.update(kwargs)
 
     def add_import(self, name, alias=None):
         location = LOCATION_ORDER.index(self._index.location_for(name))
@@ -104,7 +113,7 @@ class Imports(object):
                     continue
                 out.write('import {module}{alias}\n'.format(
                     module=imp.name,
-                    alias='as {alias}'.format(alias=imp.alias) if imp.alias else '',
+                    alias=' as {alias}'.format(alias=imp.alias) if imp.alias else '',
                 ))
 
             for module, imports in sorted(self._imports_from.items()):
@@ -117,21 +126,39 @@ class Imports(object):
                            alias=' as {alias}'.format(alias=i.alias) if i.alias else ''
                            ) for i in imports]
                 clauses.reverse()
+                line_len = len(line)
+                line_pieces = []
+                paren_used = False
                 while clauses:
                     clause = clauses.pop()
-                    if len(line) + len(clause) + 1 > 80:
-                        line += '\\\n'
-                        out.write(line)
+                    next_len = line_len + len(clause) + 2
+                    if next_len > self._style['max_columns']:
+                        imported_items = ', '.join(line_pieces)
+                        if self._style['multiline'] == 'parentheses':
+                            line_tail = ',\n'
+                            if not paren_used:
+                                line += '('
+                                paren_used = True
+                            line_pieces.append('\n')
+                        else:
+                            # Use a backslash
+                            line_tail = ', \\\n'
+                        out.write(line + imported_items + line_tail)
                         line = '    '
-                    line += clause + (', ' if clauses else '')
+                        line_len = len(line) + len(clause) + 2
+                        line_pieces = [clause]
+                    else:
+                        line_pieces.append(clause)
+                        line_len = next_len
+                line += ', '.join(line_pieces) + (')\n' if paren_used else '\n')
                 if line.strip():
-                    out.write(line + '\n')
+                    out.write(line)
 
             text = out.getvalue()
             if text:
-                groups.append(out.getvalue())
+                groups.append(text)
 
-        start = self._tokens[self._import_begin][2][0] - 1
+        start = self._tokens[self._imports_begin][2][0] - 1
         end = self._tokens[min(len(self._tokens) - 1, self._imports_end)][2][0] - 1
         if groups:
             text = '\n'.join(groups) + '\n\n'
@@ -143,14 +170,23 @@ class Imports(object):
         start, end, text = self.get_update()
         lines = self._source.splitlines()
         lines[start:end] = text.splitlines()
-        return '\n'.join(lines)
+        return '\n'.join(lines) + '\n'
 
     def _parse(self, source):
         reader = StringIO(source)
-        self._tokens = list(tokenize.generate_tokens(reader.readline))
+        # parse until EOF or TokenError (allows incomplete modules)
+        tokens = []
+        try:
+            tokens.extend(tokenize.generate_tokens(reader.readline))
+        except tokenize.TokenError:
+            # TokenError happens always at EOF, for unclosed strings or brackets.
+            # We don't care about that here, since we still can recover the whole
+            # source code.
+            pass
+        self._tokens = tokens
         it = Iterator(self._tokens)
-        self._import_begin, self._imports_end = self._find_import_range(it)
-        it = Iterator(self._tokens, start=self._import_begin, end=self._imports_end)
+        self._imports_begin, self._imports_end = self._find_import_range(it)
+        it = Iterator(self._tokens, start=self._imports_begin, end=self._imports_end)
         self._parse_imports(it)
 
     def _find_import_range(self, it):
@@ -164,6 +200,7 @@ class Imports(object):
         explicit = False
         size = 0
         start = None
+        potential_end_index = -1
 
         while it:
             index, token = it.next()
@@ -178,10 +215,20 @@ class Imports(object):
             if indentation:
                 continue
 
-            # Explicitly tell importmagic to manage a particular block of imports.
+            # Explicitly tell importmagic to manage the following block of imports
             if token[1] == '# importmagic: manage':
+                ranges = []
+                start = index + 2  # Start managing imports after directive comment + newline.
                 explicit = True
-            elif token[0] in (tokenize.STRING, tokenize.NEWLINE, tokenize.NL, tokenize.COMMENT):
+                continue
+            elif token[0] in (tokenize.STRING, tokenize.COMMENT):
+                # If a non-import statement follows, stop the range *before*
+                # this string or comment, in order to keep it out of the
+                # updated import block.
+                if potential_end_index == -1:
+                    potential_end_index = index
+                continue
+            elif token[0] in (tokenize.NEWLINE, tokenize.NL):
                 continue
 
             if not ranges:
@@ -189,6 +236,7 @@ class Imports(object):
 
             # Accumulate imports
             if token[1] in ('import', 'from'):
+                potential_end_index = -1
                 if start is None:
                     start = index
                 size += 1
@@ -200,11 +248,14 @@ class Imports(object):
 
             # Terminate this import range
             elif start is not None and token[1].strip():
+                if potential_end_index > -1:
+                    index = potential_end_index
+                    potential_end_index = -1
                 ranges.append((size, start, index))
+
                 start = None
                 size = 0
                 if explicit:
-                    ranges = ranges[-1:]
                     break
 
         if start is not None:
@@ -217,7 +268,7 @@ class Imports(object):
             index, token = it.next()
 
             if token[1] not in ('import', 'from') and token[1].strip():
-                break
+                continue
 
             type = token[1]
             if type in ('import', 'from'):
@@ -258,7 +309,7 @@ class Imports(object):
                 self.add_import_from(module, name, alias=alias)
 
     def __repr__(self):
-        return 'Imports(imports=%r, imports_from=%r)' % (self.imports, self.imports_from)
+        return 'Imports(imports=%r, imports_from=%r)' % (self._imports, self._imports_from)
 
 
 def _process_imports(src, index, unresolved, unreferenced):

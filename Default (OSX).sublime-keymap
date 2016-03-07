@@ -1,6 +1,6 @@
 [
   {
-    "keys": ["super+shift+i"],
+    "keys": ["super+alt+i"],
     "command": "update_python_imports",
     "context": [
       {
