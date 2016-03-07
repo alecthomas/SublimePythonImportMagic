@@ -1,4 +1,4 @@
-# Sublime Text 2 - Python Import Magic [![image](https://secure.travis-ci.org/alecthomas/SublimePythonImportMagic.png?branch=master)](https://travis-ci.org/alecthomas/SublimePythonImportMagic)
+# Sublime Text 3 - Python Import Magic [![image](https://secure.travis-ci.org/alecthomas/SublimePythonImportMagic.png?branch=master)](https://travis-ci.org/alecthomas/SublimePythonImportMagic)
 
 This plugin attempts to automatically manage Python imports.
 
@@ -13,7 +13,6 @@ It can:
 It currently does **NOT** (but support is planned):
 
 - Detect changes to files and update its index automatically. The current workaround is to use the command palette `Python Import Magic: Reset Index`.
-- Work on Sublime Text 3.
 
 ## Example
 
