@@ -16,7 +16,7 @@ It currently does **NOT** (but support is planned):
 
 ## Example
 
-![Example of Import Magic at work](Python%20Import%20Magic.gif)
+![Example of Import Magic at work](https://raw.githubusercontent.com/alecthomas/importmagic/master/importmagic.gif)
 
 ## Usage
 
